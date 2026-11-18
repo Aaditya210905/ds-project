@@ -5,3 +5,4 @@ __pycache__/
 *.docx
 test_api.py
 test_tracker.py
+group_details.txt
