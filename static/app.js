@@ -1,18 +1,77 @@
 // =============================================================
 //  SWARM — P2P Tracker Control Center  ·  Frontend Application
+//  Premium dark dashboard · Vanilla JS · Flask API backend
 // =============================================================
 
 // ───── STATE ─────
-let selectedTorrent = null;   // info_hash of currently selected torrent
-let lastEventId     = 0;      // for reliable incremental event polling
-let prevStats       = {};     // previous stat values for pulse detection
+const state = {
+    selectedTorrent: null,      // info_hash of currently selected torrent
+    lastEventId: 0,             // for reliable incremental event polling
+    prevStats: {},              // previous stat values for animation triggers
+    refreshing: false,          // guard against overlapping data refreshes
+    eventsPaused: false,        // live event stream pause toggle
+    connOnline: true,           // backend connectivity status
+};
 
+// ───── DOM REFERENCES ─────
+const els = {
+    connDot: document.getElementById("conn-dot"),
+    connText: document.getElementById("conn-text"),
+    connStatus: document.getElementById("conn-status"),
+    btnRefresh: document.getElementById("btn-refresh"),
+    btnRegister: document.getElementById("btn-register"),
+    btnAddPeer: document.getElementById("btn-add-peer"),
+    btnCopyHash: document.getElementById("btn-copy-hash"),
+    statTorrents: document.getElementById("stat-torrents"),
+    statPeers: document.getElementById("stat-peers"),
+    statSeeders: document.getElementById("stat-seeders"),
+    statLeechers: document.getElementById("stat-leechers"),
+    torrentTbody: document.getElementById("torrent-tbody"),
+    registryEmpty: document.getElementById("registry-empty"),
+    registryCount: document.getElementById("registry-count"),
+    swarmTitle: document.getElementById("swarm-title"),
+    swarmMeta: document.getElementById("swarm-meta"),
+    swarmEmpty: document.getElementById("swarm-empty"),
+    peerTableWrap: document.getElementById("peer-table-wrap"),
+    swarmPeersEmpty: document.getElementById("swarm-peers-empty"),
+    peerTbody: document.getElementById("peer-tbody"),
+    swName: document.getElementById("sw-name"),
+    swSize: document.getElementById("sw-size"),
+    swHash: document.getElementById("sw-hash"),
+    swSeeders: document.getElementById("sw-seeders"),
+    swLeechers: document.getElementById("sw-leechers"),
+    swTotal: document.getElementById("sw-total"),
+    selTorrent: document.getElementById("sel-torrent"),
+    inpTname: document.getElementById("inp-tname"),
+    inpTsize: document.getElementById("inp-tsize"),
+    inpPname: document.getElementById("inp-pname"),
+    selRole: document.getElementById("sel-role"),
+    eventStream: document.getElementById("event-stream"),
+    eventsEmpty: document.getElementById("events-empty"),
+    eventCount: document.getElementById("event-count"),
+    streamLive: document.getElementById("stream-live"),
+    btnPauseEvents: document.getElementById("btn-pause-events"),
+    btnClearEvents: document.getElementById("btn-clear-events"),
+    confirmDialog: document.getElementById("confirm-dialog"),
+    confirmTitle: document.getElementById("confirm-title"),
+    confirmDesc: document.getElementById("confirm-desc"),
+    confirmOk: document.getElementById("confirm-ok"),
+    confirmCancel: document.getElementById("confirm-cancel"),
+    toasts: document.getElementById("toasts"),
+};
+
+// ───── NAMES FOR SIMULATION ─────
 const NAMES = [
     "Alice","Bob","Charlie","Dave","Eve","Frank","Grace","Heidi",
     "Ivan","Judy","Karl","Linda","Mike","Nancy","Oscar","Peggy",
     "Quinn","Rita","Steve","Tina","Uma","Victor","Wendy","Xander",
     "Yara","Zack","Amit","Priya","Leo","Mia"
 ];
+
+let confirmPending = null;   // { info_hash, name } for the open confirmation
+let torrentsCache = [];      // cached full torrent objects (with peers)
+let refreshTimer = null;
+let eventTimer = null;
 
 // ───── API UTILITY ─────
 
@@ -24,24 +83,42 @@ async function api(path, method = "GET", body = null) {
         const data = await res.json();
         if (!res.ok) {
             toast(data.error || `Error ${res.status}`, "error");
+            setConnOnline(false);
             return null;
         }
+        setConnOnline(true);
         return data;
     } catch (e) {
         toast("Network error: " + e.message, "error");
+        setConnOnline(false);
         return null;
+    }
+}
+
+function setConnOnline(online) {
+    if (state.connOnline === online) return;
+    state.connOnline = online;
+    if (online) {
+        els.connStatus.classList.remove("offline");
+        els.connText.textContent = "Tracker Online";
+    } else {
+        els.connStatus.classList.add("offline");
+        els.connText.textContent = "Tracker Offline";
     }
 }
 
 // ───── TOAST NOTIFICATIONS ─────
 
 function toast(msg, type = "success") {
-    const c = document.getElementById("toasts");
     const el = document.createElement("div");
     el.className = `toast ${type}`;
     el.textContent = msg;
-    c.appendChild(el);
-    setTimeout(() => { el.classList.add("removing"); setTimeout(() => el.remove(), 300); }, 3000);
+    els.toasts.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = "0";
+        el.style.transform = "translateX(30px)";
+        setTimeout(() => el.remove(), 260);
+    }, 3000);
 }
 
 // ───── FORMATTING HELPERS ─────
@@ -49,225 +126,380 @@ function toast(msg, type = "success") {
 function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
 
 function fmtBytes(b) {
-    if (b <= 0) return "0 B";
+    if (b == null || b <= 0) return "0 B";
     const u = ["B","KB","MB","GB","TB"];
     const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
     return (b / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + u[i];
 }
 
-function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString(); }
+function fmtTime(ts) {
+    if (ts == null) return "—";
+    return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
 function truncHash(h) {
     if (!h || h.length <= 16) return h;
     return h.slice(0, 8) + "…" + h.slice(-8);
 }
 
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        toast("Copied to clipboard");
+    } catch (e) {
+        toast("Failed to copy", "error");
+    }
+}
+
+// ───── LOADING STATE HELPERS ─────
+
+function setButtonLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+        btn.classList.add("loading");
+        btn.disabled = true;
+    } else {
+        btn.classList.remove("loading");
+        btn.disabled = false;
+    }
+}
+
+function setButtonsDisabled(ids, disabled) {
+    ids.forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.disabled = disabled;
+    });
+}
+
 // ───── RENDER: STATS ─────
 
 function renderStats(stats) {
-    setStatVal("stat-torrents", stats.total_torrents);
-    setStatVal("stat-peers",    stats.total_peers);
-    setStatVal("stat-seeders",  stats.total_seeders);
-    setStatVal("stat-leechers", stats.total_leechers);
-    prevStats = stats;
+    const map = {
+        statTorrents: stats.total_torrents,
+        statPeers: stats.total_peers,
+        statSeeders: stats.total_seeders,
+        statLeechers: stats.total_leechers,
+    };
+    Object.entries(map).forEach(([key, val]) => setStatVal(els[key], val));
+    state.prevStats = stats;
 }
 
-function setStatVal(id, val) {
-    const el = document.getElementById(id);
-    const old = parseInt(el.textContent);
+function setStatVal(el, val) {
+    if (!el) return;
+    const old = parseInt(el.textContent, 10);
     el.textContent = val;
     if (!isNaN(old) && old !== val) {
-        el.classList.remove("pulse");
-        void el.offsetWidth;          // reflow to restart animation
-        el.classList.add("pulse");
+        el.style.transform = "scale(1.15)";
+        el.style.color = "var(--accent)";
+        requestAnimationFrame(() => {
+            el.style.transform = "scale(1)";
+            el.style.color = "";
+        });
     }
 }
 
 // ───── RENDER: TORRENT TABLE ─────
 
 function renderTorrents(torrents) {
-    const tb = document.getElementById("torrent-tbody");
+    const tb = els.torrentTbody;
+    const empty = els.registryEmpty;
+    const countEl = els.registryCount;
+    const tableEl = document.getElementById("torrents-table");
+
     if (!torrents.length) {
-        tb.innerHTML = `<tr><td colspan="7" class="empty-msg">No torrents registered</td></tr>`;
+        tb.innerHTML = "";
+        tb.hidden = true;
+        tableEl.hidden = true;
+        countEl.textContent = "0";
+        empty.hidden = false;
+        els.selTorrent.innerHTML = "";
         return;
     }
-    tb.innerHTML = torrents.map(t => `
-        <tr class="${t.info_hash === selectedTorrent ? 'selected' : ''}"
-            onclick="selectTorrent('${t.info_hash}')">
-            <td class="cell-name">${esc(t.name)}</td>
-            <td>${esc(t.file_size)}</td>
-            <td class="cell-hash" title="${t.info_hash}">${truncHash(t.info_hash)}</td>
-            <td class="center cell-count green">${t.seeder_count}</td>
-            <td class="center cell-count red">${t.leecher_count}</td>
-            <td class="center cell-count blue">${t.total_peers}</td>
-            <td class="center">
-                <button class="act-btn remove"
-                        onclick="event.stopPropagation();removeTorrent('${t.info_hash}')">✕</button>
-            </td>
-        </tr>`).join("");
 
-    // update dropdown
-    const sel = document.getElementById("sel-torrent");
+    tableEl.hidden = false;
+    empty.hidden = true;
+    tb.hidden = false;
+    countEl.textContent = torrents.length;
+
+    tb.innerHTML = torrents.map(t => {
+        const selected = t.info_hash === state.selectedTorrent ? "selected" : "";
+        const safeName = esc(t.name);
+        const safeHash = esc(t.info_hash);
+        const shortHash = truncHash(t.info_hash);
+        return `
+        <tr class="clickable ${selected}" role="row" aria-selected="${selected === 'selected'}" data-hash="${safeHash}">
+            <td class="col-name cell-name">${safeName}</td>
+            <td class="col-size">${esc(t.file_size)}</td>
+            <td class="col-hash cell-hash trunc" title="${safeHash}">${shortHash}</td>
+            <td class="col-count center"><span class="cell-count green">${t.seeder_count}</span></td>
+            <td class="col-count center"><span class="cell-count red">${t.leecher_count}</span></td>
+            <td class="col-count center"><span class="cell-count blue">${t.total_peers}</span></td>
+            <td class="col-actions center">
+                <button class="act-btn copy" title="Copy info hash" aria-label="Copy info hash" onclick="event.stopPropagation(); copyHash('${safeHash}')">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="act-btn remove" title="Delete torrent" aria-label="Delete torrent" onclick="event.stopPropagation(); openConfirm('${safeHash}', '${safeName}')">✕</button>
+            </td>
+        </tr>`;
+    }).join("");
+
+    // Row click to select torrent
+    tb.querySelectorAll("tr[data-hash]").forEach(tr => {
+        tr.addEventListener("click", () => selectTorrent(tr.dataset.hash));
+    });
+
+    // Update the add-peer torrent dropdown
+    const sel = els.selTorrent;
     const cur = sel.value;
-    sel.innerHTML = torrents.map(t =>
-        `<option value="${t.info_hash}">${esc(t.name)}</option>`).join("");
+    sel.innerHTML = torrents.map(t => `<option value="${esc(t.info_hash)}">${esc(t.name)}</option>`).join("");
     if (cur && torrents.find(t => t.info_hash === cur)) sel.value = cur;
+    else if (torrents.length && !state.selectedTorrent) sel.value = torrents[0].info_hash;
 }
 
-// ───── RENDER: SWARM VIEW ─────
+function copyHash(hash) {
+    copyText(hash);
+}
+
+// ───── RENDER: SWARM DETAILS ─────
 
 function renderSwarm(torrent) {
     if (!torrent) {
-        document.getElementById("swarm-title").textContent = "🐝 Select a torrent to view its swarm";
-        document.getElementById("swarm-hash").textContent = "";
-        document.getElementById("swarm-meta").style.display = "none";
-        document.getElementById("peer-table-wrap").style.display = "none";
-        document.getElementById("empty-swarm").style.display = "block";
-        document.getElementById("empty-swarm").textContent = "Select a torrent above to inspect its peer swarm.";
+        els.swarmMeta.hidden = true;
+        els.peerTableWrap.hidden = true;
+        els.swarmPeersEmpty.hidden = true;
+        els.swarmEmpty.hidden = false;
+        els.swarmTitle.textContent = "Swarm Details";
         return;
     }
 
-    document.getElementById("swarm-title").textContent = `🐝 Swarm: ${torrent.name}`;
-    document.getElementById("swarm-hash").textContent = torrent.info_hash;
+    els.swarmEmpty.hidden = true;
+    els.swarmMeta.hidden = false;
 
-    // meta bar
-    const meta = document.getElementById("swarm-meta");
-    meta.style.display = "flex";
-    document.getElementById("sw-seeders").textContent = torrent.seeder_count;
-    document.getElementById("sw-leechers").textContent = torrent.leecher_count;
+    els.swarmTitle.textContent = `Swarm: ${esc(torrent.name)}`;
+    els.swName.textContent = esc(torrent.name);
+    els.swSize.textContent = esc(torrent.file_size);
+    els.swHash.textContent = truncHash(torrent.info_hash);
+    els.swHash.title = torrent.info_hash;
+    els.swSeeders.textContent = torrent.seeder_count;
+    els.swLeechers.textContent = torrent.leecher_count;
+    els.swTotal.textContent = torrent.total_peers;
 
-    // ratio bar
-    const total = torrent.seeder_count + torrent.leecher_count;
-    const pct = total > 0 ? (torrent.seeder_count / total * 100) : 0;
-    document.getElementById("ratio-fill").style.width = pct + "%";
-
-    if (!torrent.peers.length) {
-        document.getElementById("peer-table-wrap").style.display = "none";
-        document.getElementById("empty-swarm").style.display = "block";
-        document.getElementById("empty-swarm").textContent = "No peers in this swarm.";
+    if (!torrent.peers || !torrent.peers.length) {
+        els.peerTableWrap.hidden = true;
+        els.swarmPeersEmpty.hidden = false;
         return;
     }
 
-    document.getElementById("empty-swarm").style.display = "none";
-    document.getElementById("peer-table-wrap").style.display = "block";
+    els.peerTableWrap.hidden = false;
+    els.swarmPeersEmpty.hidden = true;
 
-    const tb = document.getElementById("peer-tbody");
+    const tb = els.peerTbody;
     tb.innerHTML = torrent.peers.map(p => {
         const isSeed = p.role === "seeder";
-        const progClass = isSeed ? "green" : "blue";
-        return `<tr>
-            <td class="cell-name">👤 ${esc(p.name)}</td>
-            <td class="cell-hash" title="${p.peer_id}">${truncHash(p.peer_id)}</td>
-            <td class="center">${p.port}</td>
-            <td class="center"><span class="status ${p.role}">${isSeed ? "▲ Seeder" : "▼ Leecher"}</span></td>
-            <td class="progress-cell">
-                <div class="progress-bar">
-                    <div class="progress-fill ${progClass}" style="width:${p.progress}%"></div>
-                    <span class="progress-text">${p.progress}%</span>
+        const roleHtml = isSeed
+            ? `<span class="role-badge seeder"><span class="role-dot"></span>Seeder</span>`
+            : `<span class="role-badge leecher"><span class="role-dot"></span>Leecher</span>`;
+        const progPct = Math.min(Math.max(p.progress, 0), 100);
+        const progClass = isSeed ? "seeder" : "leecher";
+        const safeName = esc(p.name);
+        const safePid = esc(p.peer_id);
+        const shortPid = truncHash(p.peer_id);
+        return `
+        <tr role="row">
+            <td class="col-name cell-name">${safeName}</td>
+            <td class="col-id cell-hash trunc" title="${safePid}">${shortPid}</td>
+            <td class="col-role center">${roleHtml}</td>
+            <td class="col-time center">${fmtTime(p.joined_at)}</td>
+            <td class="col-time center">${fmtTime(p.last_seen)}</td>
+            <td class="col-progress">
+                <div class="progress-wrap">
+                    <div class="progress-bar">
+                        <div class="progress-fill ${progClass}" style="width:${progPct}%"></div>
+                    </div>
+                    <div class="progress-text">${progPct.toFixed(1)}%</div>
                 </div>
             </td>
-            <td class="right">${fmtBytes(p.downloaded)}</td>
-            <td class="right">${fmtBytes(p.uploaded)}</td>
-            <td class="center" style="white-space:nowrap">
-                <button class="act-btn leave"
-                        onclick="leavePeer('${torrent.info_hash}','${p.peer_id}')">Leave</button>
-                ${!isSeed ? `<button class="act-btn promote"
-                        onclick="promotePeer('${torrent.info_hash}','${p.peer_id}')">Complete ↑</button>` : ""}
+            <td class="col-actions center">
+                <button class="act-btn leave" title="Remove peer" aria-label="Remove peer" onclick="event.stopPropagation(); leavePeer('${esc(torrent.info_hash)}','${safePid}')">Leave</button>
+                ${!isSeed ? `<button class="act-btn promote" title="Promote to seeder" aria-label="Promote to seeder" onclick="event.stopPropagation(); promotePeer('${esc(torrent.info_hash)}','${safePid}')">Complete ↑</button>` : ""}
             </td>
         </tr>`;
     }).join("");
 }
 
-// ───── RENDER: EVENT LOG ─────
+// ───── RENDER: EVENT STREAM ─────
 
 function renderEvents(events) {
-    const log = document.getElementById("event-log");
-    // clear placeholder
-    if (log.querySelector(".empty-msg")) log.innerHTML = "";
+    if (!events || !events.length) return;
 
+    const log = els.eventStream;
+    if (els.eventsEmpty) els.eventsEmpty.hidden = true;
+
+    const frag = document.createDocumentFragment();
     events.forEach(e => {
-        const d = document.createElement("div");
-        d.className = `ev ${e.type}`;
-        d.innerHTML = `<span class="ev-time">${fmtTime(e.timestamp)}</span>
-            <span class="ev-type">${e.type.replace("PEER_","").replace("TORRENT_","")}</span>
-            <div class="ev-msg">${esc(e.message)}</div>`;
-        log.prepend(d);
+        const div = document.createElement("div");
+        div.className = `event-row new ev-${e.type}`;
+        const typeLabel = e.type
+            .replace("TORRENT_", "")
+            .replace("PEER_", "")
+            .replace(/_/g, " ");
+        const metaParts = [];
+        if (e.peer) metaParts.push(`peer: ${esc(e.peer)}`);
+        if (e.torrent) metaParts.push(`torrent: ${esc(e.torrent)}`);
+        div.innerHTML = `
+            <span class="event-time">${fmtTime(e.timestamp)}</span>
+            <span class="event-type">${esc(typeLabel)}</span>
+            <div class="event-body">
+                <div class="event-msg">${esc(e.message)}</div>
+                ${metaParts.length ? `<div class="event-meta">${metaParts.join(" · ")}</div>` : ""}
+            </div>`;
+        frag.appendChild(div);
     });
+    log.prepend(frag);
 
-    // cap DOM entries
-    while (log.children.length > 60) log.removeChild(log.lastChild);
+    // Remove "new" highlight after animation
+    setTimeout(() => {
+        log.querySelectorAll(".event-row.new").forEach(el => el.classList.remove("new"));
+    }, 2200);
 
-    document.getElementById("ev-count").textContent = lastEventId;
+    // Cap DOM entries
+    while (log.children.length > 120) log.removeChild(log.lastChild);
+
+    if (els.eventCount) els.eventCount.textContent = state.lastEventId;
 }
 
 // ───── DATA REFRESH ─────
 
-async function refresh() {
-    const torrents = await api("/api/torrents");
-    if (!torrents) return;
-    renderTorrents(torrents);
+async function refreshData() {
+    if (state.refreshing) return;
+    state.refreshing = true;
 
-    const stats = await api("/api/stats");
+    const [torrents, stats] = await Promise.all([
+        api("/api/torrents"),
+        api("/api/stats"),
+    ]);
+
+    if (torrents) {
+        torrentsCache = torrents;
+        renderTorrents(torrents);
+
+        // Auto-select first torrent on initial load if nothing selected
+        if (!state.selectedTorrent && torrents.length) {
+            selectTorrent(torrents[0].info_hash);
+        } else if (state.selectedTorrent) {
+            const t = torrents.find(x => x.info_hash === state.selectedTorrent);
+            renderSwarm(t || null);
+            if (!t) {
+                // selected torrent was removed; pick another or clear
+                if (torrents.length) selectTorrent(torrents[0].info_hash);
+                else { state.selectedTorrent = null; renderSwarm(null); }
+            }
+        } else {
+            renderSwarm(null);
+        }
+    }
+
     if (stats) renderStats(stats);
 
-    if (selectedTorrent) {
-        const t = torrents.find(x => x.info_hash === selectedTorrent);
-        renderSwarm(t || null);
-        if (!t) selectedTorrent = null;
-    }
+    state.refreshing = false;
 }
 
 async function pollEvents() {
-    const events = await api(`/api/events?after_id=${lastEventId}`);
+    if (state.eventsPaused || state.refreshing) return;
+    const events = await api(`/api/events?after_id=${state.lastEventId}`);
     if (events && events.length) {
-        lastEventId = events[events.length - 1].event_id;
+        state.lastEventId = events[events.length - 1].event_id;
         renderEvents(events);
-        await refresh();
+        await refreshData();
     }
+}
+
+function startPolling() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    if (eventTimer) clearInterval(eventTimer);
+    eventTimer = setInterval(pollEvents, 2000);
+    refreshTimer = setInterval(refreshData, 5000);
+}
+
+function stopPolling() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    if (eventTimer) clearInterval(eventTimer);
+    refreshTimer = null;
+    eventTimer = null;
 }
 
 // ───── USER ACTIONS ─────
 
 function selectTorrent(ih) {
-    selectedTorrent = ih;
-    refresh();
+    state.selectedTorrent = ih;
+    const sel = els.selTorrent;
+    if (sel) sel.value = ih;
+    // highlight selected row in the existing table
+    els.torrentTbody.querySelectorAll("tr[data-hash]").forEach(tr => {
+        const isNow = tr.dataset.hash === ih;
+        tr.classList.toggle("selected", isNow);
+        tr.setAttribute("aria-selected", isNow);
+    });
+    renderSwarm(torrentsCache.find(x => x.info_hash === ih) || null);
 }
 
 async function registerTorrent() {
-    const name = document.getElementById("inp-tname").value.trim();
-    const size = document.getElementById("inp-tsize").value.trim();
-    if (!name || !size) return toast("Fill in both fields", "error");
+    const name = els.inpTname.value.trim();
+    const size = els.inpTsize.value.trim();
+    if (!name || !size) return toast("Enter both file name and file size", "error");
+
+    setButtonLoading(els.btnRegister, true);
     const r = await api("/api/torrents", "POST", { name, file_size: size });
-    if (r) { document.getElementById("inp-tname").value = ""; document.getElementById("inp-tsize").value = ""; toast("Torrent registered"); }
-    await pollEvents();
+    if (r) {
+        els.inpTname.value = "";
+        els.inpTsize.value = "";
+        toast("Torrent registered");
+        await refreshData();
+    }
+    setButtonLoading(els.btnRegister, false);
 }
 
 async function addPeer() {
-    const ih   = document.getElementById("sel-torrent").value;
-    const name = document.getElementById("inp-pname").value.trim();
-    const role = document.getElementById("sel-role").value;
+    const ih = els.selTorrent.value;
+    const name = els.inpPname.value.trim();
+    const role = els.selRole.value;
     if (!ih || !name) return toast("Select a torrent and enter a peer name", "error");
+
+    setButtonLoading(els.btnAddPeer, true);
     const r = await api(`/api/torrents/${ih}/announce`, "POST", { peer_name: name, role, event: "STARTED" });
-    if (r) { document.getElementById("inp-pname").value = ""; toast(`${name} joined as ${role}`); }
-    await pollEvents();
+    if (r) {
+        els.inpPname.value = "";
+        toast(`${name} joined as ${role}`);
+        await refreshData();
+    }
+    setButtonLoading(els.btnAddPeer, false);
 }
 
 async function leavePeer(ih, pid) {
     await api(`/api/torrents/${ih}/leave`, "POST", { peer_id: pid });
-    await pollEvents();
+    await refreshData();
 }
 
 async function promotePeer(ih, pid) {
     const r = await api(`/api/torrents/${ih}/promote`, "POST", { peer_id: pid });
     if (r) toast("Peer promoted to seeder");
-    await pollEvents();
+    await refreshData();
 }
 
-async function removeTorrent(ih) {
-    if (!confirm("Remove this torrent?")) return;
-    await api(`/api/torrents/${ih}`, "DELETE");
-    if (selectedTorrent === ih) { selectedTorrent = null; renderSwarm(null); }
-    await pollEvents();
+function openConfirm(infoHash, name) {
+    confirmPending = { infoHash, name };
+    els.confirmTitle.textContent = `Delete "${esc(name)}"?`;
+    els.confirmDesc.textContent = "This will remove the torrent and its entire swarm. This action cannot be undone.";
+    els.confirmDialog.showModal();
+}
+
+async function removeTorrent(infoHash) {
+    await api(`/api/torrents/${infoHash}`, "DELETE");
+    if (state.selectedTorrent === infoHash) {
+        state.selectedTorrent = null;
+        renderSwarm(null);
+    }
+    await refreshData();
 }
 
 // ───── SIMULATION ─────
@@ -279,7 +511,7 @@ async function simRandomJoin() {
     const name = NAMES[Math.floor(Math.random() * NAMES.length)];
     const role = Math.random() > 0.6 ? "seeder" : "leecher";
     await api(`/api/torrents/${t.info_hash}/announce`, "POST", { peer_name: name, role, event: "STARTED" });
-    await pollEvents();
+    await refreshData();
 }
 
 async function simRandomLeave() {
@@ -290,27 +522,27 @@ async function simRandomLeave() {
     const t = pool[Math.floor(Math.random() * pool.length)];
     const p = t.peers[Math.floor(Math.random() * t.peers.length)];
     await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: p.peer_id });
-    await pollEvents();
+    await refreshData();
 }
 
 async function simProgressTick() {
     const r = await api("/api/simulate/progress", "POST");
-    if (r && r.promoted.length) toast(`${r.promoted.join(", ")} completed download!`);
+    if (r && r.promoted && r.promoted.length) toast(`${r.promoted.join(", ")} completed download!`);
     else if (r) toast("Progress advanced for all leechers");
-    await pollEvents();
+    await refreshData();
 }
 
 async function simTimeout() {
     const r = await api("/api/simulate/timeout", "POST");
-    if (r && r.expired.length) toast(`${r.expired.length} peer(s) timed out`, "error");
+    if (r && r.expired && r.expired.length) toast(`${r.expired.length} peer(s) timed out`, "error");
     else toast("No peers timed out");
-    await pollEvents();
+    await refreshData();
 }
 
 // ───── SCENARIOS ─────
 
 async function scenFlashCrowd() {
-    toast("⚡ Flash crowd: 6 leechers joining…");
+    toast("Flash crowd: 6 leechers joining…");
     const torrents = await api("/api/torrents");
     if (!torrents || !torrents.length) return toast("Register a torrent first", "error");
     const t = torrents[0];
@@ -319,7 +551,7 @@ async function scenFlashCrowd() {
         await api(`/api/torrents/${t.info_hash}/announce`, "POST",
             { peer_name: name, role: "leecher", event: "STARTED" });
     }
-    await pollEvents();
+    await refreshData();
     toast("Flash crowd joined!");
 }
 
@@ -330,52 +562,130 @@ async function scenSeederDepart() {
     if (!t) return toast("No torrents", "error");
     const seeders = t.peers.filter(p => p.role === "seeder");
     if (!seeders.length) return toast("No seeders to remove", "error");
-    toast("💨 All seeders departing…");
+    toast("All seeders departing…");
     for (const s of seeders) {
         await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: s.peer_id });
     }
-    await pollEvents();
+    await refreshData();
     toast("All seeders left the swarm!");
 }
 
 async function scenLifecycle() {
-    toast("🔄 Running full lifecycle…");
+    toast("Running full lifecycle…");
     const torrents = await api("/api/torrents");
     if (!torrents || !torrents.length) return toast("Register a torrent first", "error");
     const t = torrents[0];
 
-    // 1) New peer joins as leecher
     const r = await api(`/api/torrents/${t.info_hash}/announce`, "POST",
         { peer_name: "NewPeer", role: "leecher", event: "STARTED" });
     if (!r) return;
     const pid = r.peer_id;
-    await pollEvents();
+    await refreshData();
 
-    // 2) Progress ticks
     for (const pct of [30, 55, 80, 95]) {
         await delay(600);
         await api(`/api/torrents/${t.info_hash}/progress`, "POST", { peer_id: pid, progress: pct });
-        await pollEvents();
+        await refreshData();
     }
 
-    // 3) Complete
     await delay(600);
     await api(`/api/torrents/${t.info_hash}/promote`, "POST", { peer_id: pid });
-    await pollEvents();
+    await refreshData();
 
-    // 4) Leave after seeding
     await delay(800);
     await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: pid });
-    await pollEvents();
+    await refreshData();
     toast("Lifecycle complete!");
 }
 
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+// ───── EVENT LISTENERS ─────
+
+function wireListeners() {
+    // Header
+    els.btnRefresh.addEventListener("click", async () => {
+        setButtonLoading(els.btnRefresh, true);
+        await refreshData();
+        await pollEvents();
+        setButtonLoading(els.btnRefresh, false);
+    });
+
+    // Controls
+    els.btnRegister.addEventListener("click", registerTorrent);
+    els.btnAddPeer.addEventListener("click", addPeer);
+
+    // Peer operations
+    document.getElementById("btn-join").addEventListener("click", simRandomJoin);
+    document.getElementById("btn-leave").addEventListener("click", simRandomLeave);
+    document.getElementById("btn-progress").addEventListener("click", simProgressTick);
+    document.getElementById("btn-timeout").addEventListener("click", simTimeout);
+
+    // Scenarios
+    document.getElementById("btn-flash").addEventListener("click", scenFlashCrowd);
+    document.getElementById("btn-seeder-leave").addEventListener("click", scenSeederDepart);
+    document.getElementById("btn-lifecycle").addEventListener("click", scenLifecycle);
+
+    // Swarm hash copy
+    els.btnCopyHash.addEventListener("click", () => {
+        const hash = els.swHash.title;
+        if (hash) copyText(hash);
+    });
+
+    // Event stream controls
+    els.btnPauseEvents.addEventListener("click", () => {
+        state.eventsPaused = !state.eventsPaused;
+        els.btnPauseEvents.classList.toggle("btn-outline");
+        els.btnPauseEvents.classList.toggle("btn-primary");
+        els.streamLive.classList.toggle("hidden");
+        const dot = els.streamLive.querySelector(".status-dot");
+        if (state.eventsPaused) {
+            els.btnPauseEvents.title = "Resume live updates";
+            els.streamLive.querySelector("span:last-child").textContent = "Paused";
+        } else {
+            els.btnPauseEvents.title = "Pause live updates";
+            els.streamLive.querySelector("span:last-child").textContent = "Live";
+        }
+    });
+
+    els.btnClearEvents.addEventListener("click", () => {
+        els.eventStream.innerHTML = "";
+        els.eventsEmpty.hidden = false;
+        if (els.eventCount) els.eventCount.textContent = "0";
+        state.lastEventId = 0;
+    });
+
+    // Confirmation dialog
+    els.confirmCancel.addEventListener("click", () => {
+        confirmPending = null;
+        els.confirmDialog.close();
+    });
+
+    els.confirmDialog.addEventListener("click", (e) => {
+        if (e.target === els.confirmDialog) {
+            confirmPending = null;
+            els.confirmDialog.close();
+        }
+    });
+
+    els.confirmOk.addEventListener("click", async () => {
+        if (!confirmPending) return;
+        els.confirmDialog.close();
+        await removeTorrent(confirmPending.infoHash);
+        confirmPending = null;
+    });
+
+    // Enter key in register inputs
+    els.inpTname.addEventListener("keydown", (e) => { if (e.key === "Enter") registerTorrent(); });
+    els.inpTsize.addEventListener("keydown", (e) => { if (e.key === "Enter") registerTorrent(); });
+    els.inpPname.addEventListener("keydown", (e) => { if (e.key === "Enter") addPeer(); });
+}
 
 // ───── INIT ─────
 
 (async () => {
-    await refresh();
+    wireListeners();
+    await refreshData();
     await pollEvents();
-    setInterval(pollEvents, 2000);
+    startPolling();
 })();

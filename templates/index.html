@@ -8,170 +8,395 @@
 </head>
 <body>
 
-    <!-- ===== HEADER ===== -->
-    <header>
-        <div class="header-left">
-            <div class="logo">⬡</div>
-            <div>
-                <h1>SWARM</h1>
-                <p class="tagline">P2P Tracker Control Center</p>
+    <!-- ===== SHELL / HEADER ===== -->
+    <header class="shell-header" id="shell-header">
+        <div class="brand">
+            <svg class="brand-mark" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+                <circle cx="7" cy="8" r="1.4" stroke="var(--text-secondary)" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+                <circle cx="17" cy="8" r="1.4" stroke="var(--text-secondary)" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+                <circle cx="5" cy="16" r="1.4" stroke="var(--text-secondary)" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+                <circle cx="19" cy="16" r="1.4" stroke="var(--text-secondary)" stroke-width="1.4" stroke-linecap="round" opacity="0.7"/>
+                <path d="M12 15 c-1.5 0 -2.7 1.2 -3 2.7" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+                <path d="M12 9 c1.5 0 2.7 1.2 3 2.7" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+                <path d="M8.4 8.4 L9.6 9.6" stroke="var(--text-secondary)" stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>
+                <path d="M15.6 8.4 L14.4 9.6" stroke="var(--text-secondary)" stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>
+                <path d="M6.6 15.6 L7.8 14.4" stroke="var(--text-secondary)" stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>
+                <path d="M17.4 15.6 L16.2 14.4" stroke="var(--text-secondary)" stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>
+            </svg>
+            <div class="brand-text">
+                <div class="brand-name">SWARM</div>
+                <div class="brand-sub">P2P Tracker Control Center</div>
             </div>
         </div>
-        <div class="header-right">
-            <span class="badge online">● Tracker Online</span>
-            <span class="badge sim">◇ Simulation Mode · No P2P Networking</span>
+
+        <div class="status-row">
+            <div class="status-pill" id="conn-status" aria-live="polite">
+                <span class="status-dot" id="conn-dot"></span>
+                <span id="conn-text">Tracker Online</span>
+            </div>
+            <div class="status-pill sim-mode" title="Local simulation — no real P2P networking">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M9 10h.01M15 10h.01M12 15v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Simulation Mode
+            </div>
+            <button class="icon-btn" id="btn-refresh" title="Refresh" aria-label="Refresh data">
+                <svg class="icon icon-md" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M21 12v3M21 12h-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
         </div>
     </header>
 
-    <!-- ===== STATS BAR ===== -->
-    <div class="stats-bar">
-        <div class="stat-card">
-            <div class="stat-icon">📡</div>
-            <div><div class="stat-value" id="stat-torrents">0</div>
-            <div class="stat-label">Tracked Torrents</div></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">👥</div>
-            <div><div class="stat-value" id="stat-peers">0</div>
-            <div class="stat-label">Active Peers</div></div>
-        </div>
-        <div class="stat-card accent-green">
-            <div class="stat-icon">▲</div>
-            <div><div class="stat-value" id="stat-seeders">0</div>
-            <div class="stat-label">Seeders</div></div>
-        </div>
-        <div class="stat-card accent-red">
-            <div class="stat-icon">▼</div>
-            <div><div class="stat-value" id="stat-leechers">0</div>
-            <div class="stat-label">Leechers</div></div>
-        </div>
-    </div>
-
-    <!-- ===== MAIN GRID ===== -->
-    <div class="main-grid">
-
-        <!-- LEFT: Content Area -->
-        <div class="content-area">
-
-            <!-- Torrent Registry -->
-            <div class="section">
-                <div class="section-head">
-                    <h2>📡 Torrent Registry</h2>
-                </div>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>File Name</th>
-                                <th>Size</th>
-                                <th>Info Hash</th>
-                                <th class="center">Seeders</th>
-                                <th class="center">Leechers</th>
-                                <th class="center">Total</th>
-                                <th class="center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="torrent-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Swarm Details -->
-            <div class="section" id="swarm-section">
-                <div class="section-head">
-                    <h2 id="swarm-title">🐝 Select a torrent to view its swarm</h2>
-                    <code class="hash-label" id="swarm-hash"></code>
-                </div>
-                <div class="swarm-meta" id="swarm-meta" style="display:none">
-                    <span class="sm-stat green">▲ <strong id="sw-seeders">0</strong> Seeders</span>
-                    <span class="sm-stat red">▼ <strong id="sw-leechers">0</strong> Leechers</span>
-                    <div class="ratio-bar" id="ratio-bar">
-                        <div class="ratio-fill" id="ratio-fill"></div>
+    <!-- ===== MAIN ===== -->
+    <main class="shell" id="shell-main">
+        <!-- Overview statistics -->
+        <div class="stats-grid" id="stats-grid">
+            <article class="stat-card" data-key="total_torrents">
+                <div class="stat-body">
+                    <div class="stat-icon stat-icon-torrents" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="stat-torrents">0</div>
+                        <div class="stat-label">Total Torrents</div>
+                        <div class="stat-sub">Registered with tracker</div>
                     </div>
                 </div>
-                <div class="table-wrap" id="peer-table-wrap" style="display:none">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Peer</th>
-                                <th>Peer ID</th>
-                                <th class="center">Port</th>
-                                <th class="center">Status</th>
-                                <th>Progress</th>
-                                <th class="right">Downloaded</th>
-                                <th class="right">Uploaded</th>
-                                <th class="center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="peer-tbody"></tbody>
-                    </table>
+            </article>
+            <article class="stat-card" data-key="total_peers">
+                <div class="stat-body">
+                    <div class="stat-icon stat-icon-peers" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M23 21v-2a4 4 0 00-4-4h-3a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="stat-peers">0</div>
+                        <div class="stat-label">Active Peers</div>
+                        <div class="stat-sub">Connected to swarms</div>
+                    </div>
                 </div>
-                <p class="empty-msg" id="empty-swarm">Select a torrent above to inspect its peer swarm.</p>
-            </div>
+            </article>
+            <article class="stat-card" data-key="total_seeders" class-accent="success">
+                <div class="stat-body">
+                    <div class="stat-icon stat-icon-seeders" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="stat-seeders">0</div>
+                        <div class="stat-label">Seeders</div>
+                        <div class="stat-sub">Complete file holders</div>
+                    </div>
+                </div>
+            </article>
+            <article class="stat-card" data-key="total_leechers" class-accent="danger">
+                <div class="stat-body">
+                    <div class="stat-icon stat-icon-leechers" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <polyline points="7 10 12 15 17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="stat-leechers">0</div>
+                        <div class="stat-label">Leechers</div>
+                        <div class="stat-sub">Currently downloading</div>
+                    </div>
+                </div>
+            </article>
         </div>
 
-        <!-- RIGHT: Sidebar -->
-        <div class="sidebar">
+        <!-- Main dashboard grid -->
+        <div class="dashboard-grid">
 
-            <!-- Controls -->
-            <div class="section">
-                <div class="section-head"><h2>⚙️ Controls</h2></div>
+            <!-- LEFT COLUMN: Torrent Registry + Swarm Details -->
+            <div class="main-col">
 
-                <div class="ctrl-group">
-                    <h3>Register Torrent</h3>
-                    <input id="inp-tname" placeholder="File name  (e.g. movie.mkv)">
-                    <input id="inp-tsize" placeholder="File size  (e.g. 1.5 GB)">
-                    <button class="btn primary" onclick="registerTorrent()">+ Register</button>
-                </div>
-
-                <div class="ctrl-group">
-                    <h3>Add Peer to Swarm</h3>
-                    <select id="sel-torrent"></select>
-                    <input id="inp-pname" placeholder="Peer name  (e.g. Alice)">
-                    <select id="sel-role">
-                        <option value="leecher">Leecher (downloading)</option>
-                        <option value="seeder">Seeder (has complete file)</option>
-                    </select>
-                    <button class="btn primary" onclick="addPeer()">+ Join Swarm</button>
-                </div>
-
-                <div class="ctrl-group">
-                    <h3>Simulate</h3>
-                    <div class="btn-row">
-                        <button class="btn ghost" onclick="simRandomJoin()">👤 Join</button>
-                        <button class="btn ghost" onclick="simRandomLeave()">🚪 Leave</button>
+                <!-- Torrent Registry -->
+                <section class="panel" id="panel-registry">
+                    <header class="panel-head">
+                        <div class="panel-title-row">
+                            <h2 class="panel-title">Torrent Registry</h2>
+                            <div id="registry-count" class="panel-count">0</div>
+                        </div>
+                        <div class="panel-toolbar">
+                            <input type="text" id="inp-search-torrents" placeholder="Search torrents…" class="input input-sm" aria-label="Search torrents">
+                        </div>
+                    </header>
+                    <div class="panel-body">
+                        <div class="table-wrap" id="registry-table-wrap">
+                            <table class="data-table" id="torrents-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col" class="col-name">Torrent</th>
+                                        <th scope="col" class="col-size">File Size</th>
+                                        <th scope="col" class="col-hash">Info Hash</th>
+                                        <th scope="col" class="col-count center">Seeders</th>
+                                        <th scope="col" class="col-count center">Leechers</th>
+                                        <th scope="col" class="col-count center">Total Peers</th>
+                                        <th scope="col" class="col-actions center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="torrent-tbody"></tbody>
+                            </table>
+                            <div id="registry-empty" class="empty-state empty-compact" role="status" aria-live="polite">
+                                <div class="empty-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <line x1="1" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </div>
+                                <h3 class="empty-title">No torrents registered</h3>
+                                <p class="empty-desc">Register your first torrent to begin tracking swarms.</p>
+                            </div>
+                        </div>
                     </div>
-                    <div class="btn-row">
-                        <button class="btn ghost" onclick="simProgressTick()">📥 Progress</button>
-                        <button class="btn ghost" onclick="simTimeout()">⏰ Timeout</button>
-                    </div>
-                </div>
+                </section>
 
-                <div class="ctrl-group">
-                    <h3>Scenarios</h3>
-                    <div class="btn-row">
-                        <button class="btn outline" onclick="scenFlashCrowd()">🌊 Flash Crowd</button>
-                        <button class="btn outline" onclick="scenSeederDepart()">💨 Seeder Leave</button>
+                <!-- Swarm Details -->
+                <section class="panel" id="panel-swarm">
+                    <header class="panel-head">
+                        <div class="panel-title-row">
+                            <h2 class="panel-title" id="swarm-title">Swarm Details</h2>
+                            <button class="btn btn-icon btn-copy" id="btn-copy-hash" title="Copy info hash" aria-label="Copy info hash to clipboard">
+                                <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                        </div>
+                    </header>
+                    <div class="panel-body">
+                        <div id="swarm-meta" class="swarm-meta" hidden>
+                            <div class="meta-chip meta-name">
+                                <span class="meta-label">File</span>
+                                <span class="meta-value" id="sw-name">—</span>
+                            </div>
+                            <div class="meta-chip meta-size">
+                                <span class="meta-label">Size</span>
+                                <span class="meta-value" id="sw-size">—</span>
+                            </div>
+                            <div class="meta-chip meta-hash">
+                                <span class="meta-label">Info Hash</span>
+                                <span class="meta-value mono trunc" id="sw-hash" title="">—</span>
+                            </div>
+                            <div class="meta-chip meta-seeders">
+                                <span class="meta-label">Seeders</span>
+                                <span class="meta-value stat-ok" id="sw-seeders">0</span>
+                            </div>
+                            <div class="meta-chip meta-leechers">
+                                <span class="meta-label">Leechers</span>
+                                <span class="meta-value stat-info" id="sw-leechers">0</span>
+                            </div>
+                            <div class="meta-chip meta-total flex-1">
+                                <span class="meta-label">Total Peers</span>
+                                <span class="meta-value stat-accent" id="sw-total">0</span>
+                            </div>
+                        </div>
+
+                        <div id="swarm-empty" class="empty-state">
+                            <div class="empty-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M23 21v-2a4 4 0 00-4-4h-3a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <h3 class="empty-title">Select a torrent</h3>
+                            <p class="empty-desc">Click a row in the Torrent Registry to inspect its peer swarm.</p>
+                        </div>
+
+                        <div id="peer-table-wrap" class="table-wrap" hidden>
+                            <table class="data-table" id="peers-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col" class="col-name">Peer</th>
+                                        <th scope="col" class="col-id">Peer ID</th>
+                                        <th scope="col" class="col-role center">Role</th>
+                                        <th scope="col" class="col-time center">Joined</th>
+                                        <th scope="col" class="col-time center">Last Seen</th>
+                                        <th scope="col" class="col-progress">Progress</th>
+                                        <th scope="col" class="col-actions center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="peer-tbody"></tbody>
+                            </table>
+                            <div id="swarm-peers-empty" class="empty-state empty-compact" hidden>
+                                <div class="empty-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M23 21v-2a4 4 0 00-4-4h-3a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </div>
+                                <h3 class="empty-title">No peers in this swarm</h3>
+                                <p class="empty-desc">Add peers using the Tracker Controls panel.</p>
+                            </div>
+                        </div>
                     </div>
-                    <button class="btn outline full" onclick="scenLifecycle()">🔄 Full Lifecycle</button>
-                </div>
+                </section>
+
             </div>
 
-            <!-- Event Stream -->
-            <div class="section">
-                <div class="section-head">
-                    <h2>📜 Event Stream</h2>
-                    <span class="badge count" id="ev-count">0</span>
-                </div>
-                <div id="event-log" class="event-log">
-                    <p class="empty-msg">Waiting for events…</p>
-                </div>
+            <!-- RIGHT COLUMN: Controls -->
+            <div class="side-col">
+
+                <!-- Tracker Controls -->
+                <section class="panel" id="panel-controls">
+                    <header class="panel-head">
+                        <h2 class="panel-title">Tracker Controls</h2>
+                    </header>
+                    <div class="panel-body controls-body">
+
+                        <div class="control-group">
+                            <label class="control-label">Register Torrent</label>
+                            <div class="form-fields">
+                                <input type="text" id="inp-tname" class="input" placeholder="File name (e.g. ubuntu.iso)" aria-label="Torrent file name">
+                                <input type="text" id="inp-tsize" class="input" placeholder="File size (e.g. 1.5 GB)" aria-label="File size">
+                                <button class="btn btn-primary btn-full" id="btn-register" type="button">Register Torrent</button>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label class="control-label">Add Peer to Swarm</label>
+                            <div class="form-fields">
+                                <select id="sel-torrent" class="input" aria-label="Select torrent"></select>
+                                <input type="text" id="inp-pname" class="input" placeholder="Peer name (e.g. Alice)" aria-label="Peer name">
+                                <select id="sel-role" class="input" aria-label="Peer role">
+                                    <option value="leecher">Leecher (downloading)</option>
+                                    <option value="seeder">Seeder (complete file)</option>
+                                </select>
+                                <button class="btn btn-primary btn-full" id="btn-add-peer" type="button">Join Swarm</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- Peer Operations -->
+                <section class="panel" id="panel-peer-ops">
+                    <header class="panel-head">
+                        <h2 class="panel-title">Peer Operations</h2>
+                    </header>
+                    <div class="panel-body controls-body">
+                        <div class="button-grid">
+                            <button class="btn btn-ghost btn-full" id="btn-join" type="button">
+                                <span class="btn-label">Join Peer</span>
+                                <span class="btn-desc">Random peer joins swarm</span>
+                            </button>
+                            <button class="btn btn-ghost btn-full" id="btn-leave" type="button">
+                                <span class="btn-label">Leave Peer</span>
+                                <span class="btn-desc">Random peer leaves swarm</span>
+                            </button>
+                            <button class="btn btn-ghost btn-full" id="btn-progress" type="button">
+                                <span class="btn-label">Simulate Progress</span>
+                                <span class="btn-desc">Advance all leechers</span>
+                            </button>
+                            <button class="btn btn-ghost btn-full" id="btn-timeout" type="button">
+                                <span class="btn-label">Simulate Timeout</span>
+                                <span class="btn-desc">Expire stale peers</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Scenario Presets -->
+                <section class="panel" id="panel-scenarios">
+                    <header class="panel-head">
+                        <h2 class="panel-title">Scenario Presets</h2>
+                    </header>
+                    <div class="panel-body controls-body">
+                        <div class="button-grid">
+                            <button class="btn btn-outline btn-full" id="btn-flash" type="button">
+                                <span class="btn-label">Flash Crowd</span>
+                                <span class="btn-desc">6 leechers join at once</span>
+                            </button>
+                            <button class="btn btn-outline btn-full" id="btn-seeder-leave" type="button">
+                                <span class="btn-label">Seeder Leaves</span>
+                                <span class="btn-desc">All seeders depart</span>
+                            </button>
+                            <button class="btn btn-outline btn-full" id="btn-lifecycle" type="button">
+                                <span class="btn-label">Full Lifecycle</span>
+                                <span class="btn-desc">Join → download → seed → leave</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
             </div>
+
         </div>
-    </div>
 
-    <!-- Toast container -->
-    <div id="toasts"></div>
+        <!-- Event Stream (full width) -->
+        <section class="panel panel-full" id="panel-events">
+            <header class="panel-head">
+                <div class="panel-title-row">
+                    <h2 class="panel-title">Event Stream</h2>
+                    <div class="panel-count" id="event-count">0</div>
+                </div>
+                <div class="panel-toolbar stream-toolbar">
+                    <div class="status-pill stream-live" id="stream-live" title="Live updates">
+                        <span class="status-dot live-dot"></span>
+                        <span>Live</span>
+                    </div>
+                    <button class="btn btn-icon btn-outline" id="btn-pause-events" title="Pause live updates" aria-label="Pause live updates">
+                        <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="4" width="4" height="16" rx="1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="4" width="4" height="16" rx="1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <button class="btn btn-icon btn-outline" id="btn-clear-events" title="Clear event log" aria-label="Clear event log">
+                        <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                </div>
+            </header>
+            <div class="panel-body p-0">
+                <div class="stream-wrap" id="stream-wrap">
+                    <div id="event-stream" class="event-stream" role="log" aria-label="Tracker events"></div>
+                    <div id="events-empty" class="empty-state empty-compact hidden">
+                        <div class="empty-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <line x1="1" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <h3 class="empty-title">No events yet</h3>
+                        <p class="empty-desc">Tracker activity will appear here in real time.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ===== CONFIRMATION DIALOG ===== -->
+    <dialog id="confirm-dialog" class="modal">
+        <form method="dialog">
+            <div class="modal-inner">
+                <div class="modal-icon modal-icon-danger" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="modal-content">
+                    <h3 class="modal-title" id="confirm-title">Delete torrent?</h3>
+                    <p class="modal-desc" id="confirm-desc">This will remove the torrent and its entire swarm. This action cannot be undone.</p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-ghost btn-full" id="confirm-cancel" type="button">Cancel</button>
+                    <button class="btn btn-danger btn-full" id="confirm-ok" type="submit">Delete Torrent</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- ===== TOASTS ===== -->
+    <div class="toast-container" id="toasts" aria-live="polite" aria-atomic="true"></div>
 
     <script src="/static/app.js"></script>
 </body>
