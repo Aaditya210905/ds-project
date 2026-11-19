@@ -55,45 +55,23 @@
 ## 🟦 Segment 3 — Architecture Diagram (1:20 – 2:20)
 
 > [!IMPORTANT]
-> **Show:** The ASCII architecture diagram from the README (you can display it in a terminal, or draw it on paper/whiteboard, or show a slide). Point to each component as you explain.
+> **Show:** The architecture diagram image (`bittorrent_tracker_architecture.png`) full screen or on a slide. Point to each tier from top to bottom as you explain, and trace the arrows between them.
 
 ### Diagram to show:
 
-```
-┌─────────────────────────────────────────────────────┐
-│                 Web Dashboard (Browser)             │
-│        HTML/CSS/JS  ·  Polls API every 2 seconds    │
-└──────────────────────┬──────────────────────────────┘
-                       │  HTTP REST API
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│             Flask Web Server  (app.py)              │
-│     Validation · Routing · JSON responses           │
-└──────────────────────┬──────────────────────────────┘
-                       │  Python calls
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│            Tracker Engine  (tracker.py)             │
-│  ┌──────────────┐ ┌───────────┐ ┌────────────────┐  │
-│  │ Torrent      │ │ Peer      │ │ Event Log      │  │
-│  │ Registry     │ │ Swarms    │ │ (incremental   │  │
-│  │ {hash → info}│ │ {id → p}  │ │  IDs, capped)  │  │
-│  └──────────────┘ └───────────┘ └────────────────┘  │
-│  Thread-safe (Lock)  ·  Stats history snapshots     │
-└─────────────────────────────────────────────────────┘
-```
+![Architecture diagram](bittorrent_tracker_architecture.png)
 
 ### Script
 
-> *"Here's our architecture. It follows a standard **three-tier client-server model** inspired by how a real BitTorrent tracker works.*
+> *"Here's our architecture. It follows a **three-tier client-server model**, inspired by how a real BitTorrent tracker works.*
 >
-> *At the top, we have the **Web Dashboard** — this is what you see in the browser. It's built with HTML, CSS, and JavaScript, and it polls the backend API every two seconds to get live data.*
+> *At the top is the **Web Dashboard**, built with HTML, CSS and JavaScript. It has five parts: stats cards, the torrent registry, the swarm view, the simulation controls, and the live event feed. It sends `fetch` requests with JSON bodies to the server, and it polls for fresh data every two seconds.*
 >
-> *In the middle, we have the **Flask Web Server** — `app.py`. This handles HTTP routing, request validation, and returns JSON responses. It exposes over twelve REST API endpoints — for registering torrents, announcing peers, scraping statistics, and simulating events.*
+> *In the middle is the **Flask server**, `app.py`. It exposes 14 routes in five groups: stats, torrents, peers, simulation, and events. Every request goes through `require_json` validation, and bad input gets a clean 400 or 404 response. On startup it seeds three demo torrents with seven peers, so the dashboard is never empty.*
 >
-> *At the bottom is the **Tracker Engine** — `tracker.py`. This is the core of the project. It has three main data structures: a **Torrent Registry** that maps 40-character info hashes to file metadata, **Peer Swarms** that track each peer's role, progress, upload and download stats, and an **Event Log** with incremental IDs for reliable event streaming.*
+> *At the bottom is the **Tracker Engine**, `tracker.py`, the core of the project. A `Torrent` owns a dictionary of `Peer` objects, each with a role, a progress value, and a last-seen time. The `announce()` method handles the four protocol events: STARTED, ANNOUNCE, COMPLETED and STOPPED. Every change is written to an **Event Log** with incremental IDs, so the dashboard can ask for only what's new, and we keep **stats history** snapshots too.*
 >
-> *The entire tracker engine is **thread-safe** using Python's threading Lock, so concurrent API requests don't corrupt the shared state."*
+> *Everything lives in memory, and a single **threading Lock** guards the shared state, so concurrent API requests can't corrupt it."*
 
 **Duration:** ~60 seconds
 

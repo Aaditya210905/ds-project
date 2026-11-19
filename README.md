@@ -19,40 +19,64 @@ A simplified BitTorrent tracker simulator that demonstrates core P2P concepts �
 The system follows a **three-tier client-server architecture** modelled after a real BitTorrent tracker.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Web Dashboard (Browser)             │
-│        HTML/CSS/JS  ·  Polls API every 2 seconds    │
-└──────────────────────┬──────────────────────────────┘
-                       │  HTTP REST API
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│             Flask Web Server  (app.py)              │
-│     Validation · Routing · JSON responses           │
-└──────────────────────┬──────────────────────────────┘
-                       │  Python calls
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│            Tracker Engine  (tracker.py)             │
-│  ┌──────────────┐ ┌───────────┐ ┌────────────────┐  │
-│  │ Torrent      │ │ Peer      │ │ Event Log      │  │
-│  │ Registry     │ │ Swarms    │ │ (incremental   │  │
-│  │ {hash → info}│ │ {id → p}  │ │  IDs, capped)  │  │
-│  └──────────────┘ └───────────┘ └────────────────┘  │
-│  Thread-safe (Lock)  ·  Stats history snapshots     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  Web dashboard (browser)                                             │
+│  index.html, style.css, app.js · polls every 2s                      │
+│                                                                      │
+│  ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ ┌────────┐ │
+│  │  Stats   │ │  Registry  │ │ Swarm view │ │ Controls │ │ Event  │ │
+│  │ 4 KPI    │ │  Search,   │ │   Peer     │ │  Sim,    │ │  feed  │ │
+│  │  cards   │ │  delete    │ │   table    │ │scenarios │ │ Pause, │ │
+│  │          │ │            │ │            │ │          │ │  clear │ │
+│  └──────────┘ └────────────┘ └────────────┘ └──────────┘ └────────┘ │
+└───────────────────┬──────────────────────────────────┬───────────────┘
+                    │ fetch() with JSON body           │ JSON every 2s
+                    ▼                                  ▲
+┌──────────────────────────────────────────────────────────────────────┐
+│  Flask server (app.py)                                               │
+│  14 routes · one global Tracker instance                             │
+│                                                                      │
+│  ┌──────────┐ ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │  Stats   │ │  Torrents  │ │  Peers   │ │ Simulate │ │  Events  │ │
+│  │ 2 GET    │ │  4 routes  │ │ 4 POST   │ │ 2 POST   │ │ after_id │ │
+│  │  routes  │ │            │ │  routes  │ │  routes  │ │   poll   │ │
+│  └──────────┘ └────────────┘ └──────────┘ └──────────┘ └──────────┘ │
+│                                                                      │
+│  require_json validation · 201/400/404 · seeds 3 torrents, 7 peers   │
+└───────────────────┬──────────────────────────────────┬───────────────┘
+                    │ Python method calls               │ Dicts and counts
+                    ▼                                   ▲
+┌──────────────────────────────────────────────────────────────────────┐
+│  Tracker engine (tracker.py)                                         │
+│  All state in memory · every public method locks                     │
+│                                                                      │
+│  ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐ │
+│  │     Torrent      │───▶│      Peer       │    │    Event log     │ │
+│  │  Owns peers dict │    │ Role, progress, │    │  Last 200,       │ │
+│  │                  │    │     seen        │    │  int event_id    │ │
+│  └──────────────────┘    └─────────────────┘    └──────────────────┘ │
+│                                                                      │
+│  ┌────────────────────────────────┐    ┌──────────────────────────┐  │
+│  │          announce()            │    │      Stats history       │  │
+│  │ STARTED, ANNOUNCE,            │    │    Last 300 snapshots    │  │
+│  │ COMPLETED, STOPPED            │    │                          │  │
+│  └────────────────────────────────┘    └──────────────────────────┘  │
+│                                                                      │
+│  threading.Lock guards torrents, event log, stats history            │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Components:**
 
-- **Web Dashboard** — HTML/CSS/JS frontend that polls the API every 2 seconds for live swarm updates. Features a dark monitoring theme with stats cards, torrent registry table, swarm details with progress bars, simulation controls, and a real-time event stream.
-- **Flask Web Server** (`app.py`) — REST API layer with 12+ endpoints. Handles request validation, JSON routing, and HTTP error responses (400, 404, 409). Seeds 3 demo torrents with 7 peers on startup.
-- **Tracker Engine** (`tracker.py`) — Core logic with `Tracker`, `Torrent`, and `Peer` classes. Manages torrent registration, peer announce lifecycle, progress tracking, timeout expiry, and thread-safe event logging with incremental IDs.
+- **Web Dashboard** — HTML/CSS/JS frontend that polls the API every 2 seconds for live swarm updates. Features 4 KPI stat cards, torrent registry with search and delete, swarm peer table with progress bars, simulation controls with scenario presets, and a pausable event feed.
+- **Flask Server** (`app.py`) — 14 REST routes grouped into Stats, Torrents, Peers, Simulate, and Events. Uses `require_json` validation and returns proper HTTP status codes (201/400/404). Seeds 3 demo torrents with 7 peers on startup.
+- **Tracker Engine** (`tracker.py`) — Core logic with `Tracker`, `Torrent`, and `Peer` classes. Each `Torrent` owns a peers dict; each `Peer` tracks role, progress, and last-seen time. Supports the full announce lifecycle (STARTED → ANNOUNCE → COMPLETED → STOPPED). Maintains a capped event log (last 200) with incremental IDs and stats history (last 300 snapshots). All public methods are guarded by `threading.Lock`.
 
 ## 🚀 How to Run
 
 ### Prerequisites
 
-- Python 3.8+ (tested with Python 3.12 and 3.13)
+- Python 3.10+ (tested with Python 3.12 and 3.13)
 - pip
 
 ### Setup & Run
@@ -136,14 +160,15 @@ ds-project/
 |--------|----------|-------------|
 | `GET` | `/` | Serve the web dashboard |
 | `GET` | `/api/stats` | Global tracker statistics (torrents, peers, seeders, leechers) |
+| `GET` | `/api/stats/history` | Stats snapshots over time (last 300, for charting) |
 | `GET` | `/api/torrents` | List all tracked torrents with peer counts |
 | `POST` | `/api/torrents` | Register a new torrent (body: `name`, `file_size`) |
 | `GET` | `/api/torrents/<hash>` | Get torrent details and peer list (scrape) |
 | `DELETE` | `/api/torrents/<hash>` | Remove a torrent and its entire swarm |
-| `POST` | `/api/torrents/<hash>/announce` | Peer announce — join swarm (body: `peer_name`, `role`) |
-| `POST` | `/api/torrents/<hash>/leave` | Peer leaves the swarm (body: `peer_name`) |
-| `POST` | `/api/torrents/<hash>/promote` | Promote a leecher to seeder (body: `peer_name`) |
-| `POST` | `/api/torrents/<hash>/progress` | Update a peer's download progress |
+| `POST` | `/api/torrents/<hash>/announce` | Peer announce (body: `event` = STARTED/ANNOUNCE/COMPLETED/STOPPED; STARTED needs `peer_name`, optional `role`; other events need `peer_id`) |
+| `POST` | `/api/torrents/<hash>/leave` | Peer leaves the swarm (body: `peer_id`) |
+| `POST` | `/api/torrents/<hash>/promote` | Promote a leecher to seeder (body: `peer_id`) |
+| `POST` | `/api/torrents/<hash>/progress` | Update a peer's download progress (body: `peer_id`, `progress` 0-100) |
 | `POST` | `/api/simulate/progress` | Advance all leechers' download progress |
 | `POST` | `/api/simulate/timeout` | Expire peers that haven't announced recently |
 | `GET` | `/api/events?after_id=N` | Get tracker events after a given event ID |

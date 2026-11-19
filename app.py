@@ -187,7 +187,10 @@ def api_sim_timeout():
 @app.route("/api/events")
 def api_events():
     """Event log. Use ?after_id=N for reliable incremental polling."""
-    after_id = int(request.args.get("after_id", 0))
+    try:
+        after_id = int(request.args.get("after_id", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "after_id must be an integer"}), 400
     return jsonify(tracker.get_events(after_id))
 
 
