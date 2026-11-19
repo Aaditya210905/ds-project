@@ -1,14 +1,33 @@
 # Mini BitTorrent Tracker Simulator (Without Networking)
 
+**Distributed Systems — Group Project 2026**
+
+| Member | Roll Number |
+|--------|-------------|
+| Aaditya Meghrajani | 241020401 |
+| Abhiudai Singh | 241020403 |
+| Abhinav Srivastav | 241020404 |
+| Aditya Tiwari | 241020405 |
+
+---
+
 ## 📌 Project Description
 
 A simplified BitTorrent tracker simulator that demonstrates core P2P concepts — **trackers, swarms, seeders, and leechers** — without actual networking. The tracker maintains a registry of torrent files and their associated peer swarms. Peers can announce (join), leave, or be promoted from leecher to seeder when they complete a download. All swarm changes are displayed in real time through a professional monitoring dashboard.
 
 > **Simulation note:** This project simulates tracker behaviour locally. There is no actual peer-to-peer data transfer or network communication between peers. All peers, torrents, and events exist in-memory on the server.
 
+## ✅ Functional Requirements Covered
+
+| Requirement | Status |
+|-------------|--------|
+| File → list of peers mapping | ✅ Torrent registry maps info hashes to peer swarms |
+| Peers joining and leaving swarms | ✅ Announce (STARTED/STOPPED) and leave operations |
+| Real-time seeder/leecher statistics | ✅ Live dashboard with 2-second polling |
+
 ## 🏗️ Architecture
 
-The system follows a **client-server architecture** modelled after a real BitTorrent tracker. A **Flask REST API** (`app.py`) acts as the central tracker, exposing announce/scrape endpoints. The **Tracker engine** (`tracker.py`) manages an in-memory registry mapping 40-character `info_hash` values to their peer swarms, supporting the full announce lifecycle (STARTED → ANNOUNCE → COMPLETED → STOPPED) with upload/download statistics, progress tracking, and peer timeout expiry. A **web dashboard** (HTML/CSS/JS) polls the tracker API every 2 seconds to reflect real-time swarm changes.
+The system follows a **three-tier client-server architecture** modelled after a real BitTorrent tracker.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -33,6 +52,12 @@ The system follows a **client-server architecture** modelled after a real BitTor
 │  Thread-safe (Lock)  ·  Stats history snapshots      │
 └─────────────────────────────────────────────────────┘
 ```
+
+**Components:**
+
+- **Web Dashboard** — HTML/CSS/JS frontend that polls the API every 2 seconds for live swarm updates. Features a dark monitoring theme with stats cards, torrent registry table, swarm details with progress bars, simulation controls, and a real-time event stream.
+- **Flask Web Server** (`app.py`) — REST API layer with 12+ endpoints. Handles request validation, JSON routing, and HTTP error responses (400, 404, 409). Seeds 3 demo torrents with 7 peers on startup.
+- **Tracker Engine** (`tracker.py`) — Core logic with `Tracker`, `Torrent`, and `Peer` classes. Manages torrent registration, peer announce lifecycle, progress tracking, timeout expiry, and thread-safe event logging with incremental IDs.
 
 ## 🚀 How to Run
 
@@ -68,63 +93,98 @@ python3 app.py
 
 ## 📖 Usage
 
-| Feature | How |
-|---------|-----|
-| **Register a torrent** | Enter file name + size in the sidebar, click "Register" |
-| **Add a peer** | Select torrent, enter peer name, choose role, click "Join Swarm" |
-| **View swarm** | Click any torrent row to see its peers with progress bars |
-| **Promote leecher → seeder** | Click the green "Complete ↑" button on a leecher |
-| **Remove a peer** | Click the red "Leave" button on any peer |
-| **Simulate random events** | Use the "Simulate" buttons: Join, Leave, Progress, Timeout |
-| **Run scenarios** | Flash Crowd (mass join), Seeder Departure, Full Lifecycle |
-| **Watch events** | The Event Stream panel shows all activity in real time |
+### Dashboard Sections
+
+| Section | Description |
+|---------|-------------|
+| **Overview Cards** | Total torrents, active peers, seeders, leechers — updates in real time |
+| **Torrent Registry** | Table of all registered files with info hash, peer counts, and actions |
+| **Swarm Details** | Click a torrent row to see its peers, roles, and download progress bars |
+| **Tracker Controls** | Register new torrents and add peers to swarms |
+| **Simulation Controls** | Simulate random joins, leaves, progress ticks, and peer timeouts |
+| **Event Stream** | Live feed of all tracker activity with event types and timestamps |
+
+### How to Use
+
+| Action | Steps |
+|--------|-------|
+| **Register a torrent** | Enter file name + size in the sidebar → click **Register Torrent** |
+| **Add a peer** | Select a torrent, enter peer name, choose Seeder/Leecher → click **Join Swarm** |
+| **View swarm** | Click any torrent row → swarm details panel shows all peers with progress |
+| **Promote leecher → seeder** | Click the green **Complete ↑** button on a leecher peer |
+| **Remove a peer** | Click the red **Leave** button on any peer |
+| **Simulate progress** | Click **Sim Progress** to advance all leechers' download percentage |
+| **Simulate timeout** | Click **Sim Timeout** to expire stale peers |
+| **Run scenarios** | Use preset buttons: **Flash Crowd**, **Seeder Departure**, **Full Lifecycle** |
+
+### Simulation Scenarios
+
+| Scenario | What It Does |
+|----------|--------------|
+| **Flash Crowd** | 5 peers suddenly join a swarm at once (common in real torrents) |
+| **Seeder Departure** | A seeder leaves the swarm, reducing availability |
+| **Full Lifecycle** | Complete flow: register torrent → peers join → progress → complete → leave |
 
 ## 🗂️ File Structure
 
 ```
 ds-project/
 ├── app.py              # Flask web server with REST API & validation
-├── tracker.py          # Core tracker engine (Tracker, Torrent, Peer)
-├── requirements.txt    # Python dependencies (flask)
+├── tracker.py          # Core tracker engine (Tracker, Torrent, Peer classes)
+├── requirements.txt    # Python dependencies (flask>=3.0)
 ├── README.md           # Project documentation
 ├── group_details.txt   # Group info (number, names, roll numbers)
 ├── templates/
-│   └── index.html      # Dashboard template
+│   └── index.html      # Dashboard HTML template
 └── static/
-    ├── style.css       # Professional dark monitoring theme
-    └── app.js          # Frontend (API client, rendering, simulation, scenarios)
+    ├── style.css       # Dark monitoring dashboard theme (1050+ lines)
+    └── app.js          # Frontend logic: API client, rendering, simulation, scenarios
 ```
 
 ## 🔗 API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/stats` | Global tracker statistics |
-| `GET` | `/api/torrents` | List all tracked torrents |
-| `POST` | `/api/torrents` | Register a new torrent |
-| `GET` | `/api/torrents/<hash>` | Get torrent details (scrape) |
-| `DELETE` | `/api/torrents/<hash>` | Remove a torrent |
-| `POST` | `/api/torrents/<hash>/announce` | Peer announce (STARTED / ANNOUNCE / COMPLETED / STOPPED) |
-| `POST` | `/api/torrents/<hash>/leave` | Peer leaves the swarm |
-| `POST` | `/api/torrents/<hash>/promote` | Promote leecher → seeder |
-| `POST` | `/api/torrents/<hash>/progress` | Update peer download progress |
-| `POST` | `/api/simulate/progress` | Advance all leechers' progress |
-| `POST` | `/api/simulate/timeout` | Expire stale peers |
-| `GET` | `/api/events?after_id=N` | Get events after a given ID |
+| `GET` | `/` | Serve the web dashboard |
+| `GET` | `/api/stats` | Global tracker statistics (torrents, peers, seeders, leechers) |
+| `GET` | `/api/torrents` | List all tracked torrents with peer counts |
+| `POST` | `/api/torrents` | Register a new torrent (body: `name`, `file_size`) |
+| `GET` | `/api/torrents/<hash>` | Get torrent details and peer list (scrape) |
+| `DELETE` | `/api/torrents/<hash>` | Remove a torrent and its entire swarm |
+| `POST` | `/api/torrents/<hash>/announce` | Peer announce — join swarm (body: `peer_name`, `role`) |
+| `POST` | `/api/torrents/<hash>/leave` | Peer leaves the swarm (body: `peer_name`) |
+| `POST` | `/api/torrents/<hash>/promote` | Promote a leecher to seeder (body: `peer_name`) |
+| `POST` | `/api/torrents/<hash>/progress` | Update a peer's download progress |
+| `POST` | `/api/simulate/progress` | Advance all leechers' download progress |
+| `POST` | `/api/simulate/timeout` | Expire peers that haven't announced recently |
+| `GET` | `/api/events?after_id=N` | Get tracker events after a given event ID |
 
-## 📚 Concepts Demonstrated
+## 📚 Distributed Systems Concepts Demonstrated
 
 | Concept | Implementation |
-|---------|---------------|
-| **BitTorrent Tracker** | Central server coordinating peers (`tracker.py`) |
-| **Swarm** | Per-torrent peer group with dynamic membership |
-| **Seeders / Leechers** | Role-based peer classification with status badges |
-| **Announce Protocol** | STARTED → periodic ANNOUNCE → COMPLETED → STOPPED lifecycle |
-| **Info Hash (20-byte)** | Protocol-compatible 40-hex-char identifiers |
-| **Peer Identity** | Stable peer IDs with port, uploaded, downloaded, left fields |
-| **Scrape** | Query tracker for swarm statistics |
-| **Peer Timeout** | Stale peers expired after inactivity window |
-| **Download Progress** | Simulated byte-level download tracking |
+|---------|----------------|
+| **BitTorrent Tracker** | Central coordination server that maps files to peers (`tracker.py`) |
+| **Swarm** | Per-torrent peer group with dynamic membership (join/leave) |
+| **Seeders / Leechers** | Role-based peer classification — seeders have 100%, leechers are downloading |
+| **Announce Protocol** | Full lifecycle: STARTED → periodic ANNOUNCE → COMPLETED → STOPPED |
+| **Info Hash (20-byte)** | Protocol-compatible 40-hex-character identifiers using `secrets.token_hex(20)` |
+| **Peer Identity** | Stable peer IDs with port, uploaded, downloaded, left, progress fields |
+| **Scrape** | Query tracker for per-torrent swarm statistics |
+| **Peer Timeout / Expiry** | Stale peers removed after inactivity window (120 seconds) |
+| **Thread Safety** | `threading.Lock` protects shared state from concurrent API requests |
+| **Event Streaming** | Incremental event IDs for reliable, gap-free event delivery to clients |
+
+## 🎥 Demo Video
+
+**Duration:** ≤ 5 minutes
+
+| Timestamp | Segment |
+|-----------|---------|
+| 0:00 – 0:20 | Group members and project name |
+| 0:20 – 1:20 | What the system does (tracker, API, dashboard) |
+| 1:20 – 2:20 | Architecture diagram walkthrough |
+| 2:20 – 4:20 | Live demo — register torrents, add peers, simulate progress, run scenarios |
+| 4:20 – 5:00 | What we learned |
 
 ## ⚠️ Known Limitations
 
@@ -133,3 +193,7 @@ ds-project/
 - **Single-server** — no distributed tracker or DHT
 - **In-memory storage** — data is lost on server restart
 - **No authentication** — open tracker (matches the simulation scope)
+
+## 📄 License
+
+This project was developed as a course assignment for Distributed Systems 2026.
