@@ -18,59 +18,13 @@ A simplified BitTorrent tracker simulator that demonstrates core P2P concepts �
 
 The system follows a **three-tier client-server architecture** modelled after a real BitTorrent tracker.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  Web dashboard (browser)                                             │
-│  index.html, style.css, app.js · polls every 2s                      │
-│                                                                      │
-│  ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ ┌────────┐ │
-│  │  Stats   │ │  Registry  │ │ Swarm view │ │ Controls │ │ Event  │ │
-│  │ 4 KPI    │ │  Search,   │ │   Peer     │ │  Sim,    │ │  feed  │ │
-│  │  cards   │ │  delete    │ │   table    │ │scenarios │ │ Pause, │ │
-│  │          │ │            │ │            │ │          │ │  clear │ │
-│  └──────────┘ └────────────┘ └────────────┘ └──────────┘ └────────┘ │
-└───────────────────┬──────────────────────────────────┬───────────────┘
-                    │ fetch() with JSON body           │ JSON every 2s
-                    ▼                                  ▲
-┌──────────────────────────────────────────────────────────────────────┐
-│  Flask server (app.py)                                               │
-│  14 routes · one global Tracker instance                             │
-│                                                                      │
-│  ┌──────────┐ ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │  Stats   │ │  Torrents  │ │  Peers   │ │ Simulate │ │  Events  │ │
-│  │ 2 GET    │ │  4 routes  │ │ 4 POST   │ │ 2 POST   │ │ after_id │ │
-│  │  routes  │ │            │ │  routes  │ │  routes  │ │   poll   │ │
-│  └──────────┘ └────────────┘ └──────────┘ └──────────┘ └──────────┘ │
-│                                                                      │
-│  require_json validation · 201/400/404 · seeds 3 torrents, 7 peers   │
-└───────────────────┬──────────────────────────────────┬───────────────┘
-                    │ Python method calls               │ Dicts and counts
-                    ▼                                   ▲
-┌──────────────────────────────────────────────────────────────────────┐
-│  Tracker engine (tracker.py)                                         │
-│  All state in memory · every public method locks                     │
-│                                                                      │
-│  ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐ │
-│  │     Torrent      │───▶│      Peer       │    │    Event log     │ │
-│  │  Owns peers dict │    │ Role, progress, │    │  Last 200,       │ │
-│  │                  │    │     seen        │    │  int event_id    │ │
-│  └──────────────────┘    └─────────────────┘    └──────────────────┘ │
-│                                                                      │
-│  ┌────────────────────────────────┐    ┌──────────────────────────┐  │
-│  │          announce()            │    │      Stats history       │  │
-│  │ STARTED, ANNOUNCE,            │    │    Last 300 snapshots    │  │
-│  │ COMPLETED, STOPPED            │    │                          │  │
-│  └────────────────────────────────┘    └──────────────────────────┘  │
-│                                                                      │
-│  threading.Lock guards torrents, event log, stats history            │
-└──────────────────────────────────────────────────────────────────────┘
-```
+![Architecture Diagram](bittorrent_tracker_architecture.png)
 
 **Components:**
 
-- **Web Dashboard** — HTML/CSS/JS frontend that polls the API every 2 seconds for live swarm updates. Features 4 KPI stat cards, torrent registry with search and delete, swarm peer table with progress bars, simulation controls with scenario presets, and a pausable event feed.
-- **Flask Server** (`app.py`) — 14 REST routes grouped into Stats, Torrents, Peers, Simulate, and Events. Uses `require_json` validation and returns proper HTTP status codes (201/400/404). Seeds 3 demo torrents with 7 peers on startup.
-- **Tracker Engine** (`tracker.py`) — Core logic with `Tracker`, `Torrent`, and `Peer` classes. Each `Torrent` owns a peers dict; each `Peer` tracks role, progress, and last-seen time. Supports the full announce lifecycle (STARTED → ANNOUNCE → COMPLETED → STOPPED). Maintains a capped event log (last 200) with incremental IDs and stats history (last 300 snapshots). All public methods are guarded by `threading.Lock`.
+- **Web Dashboard** — HTML/CSS/JS frontend that polls the API every 2 seconds for live swarm updates. Features a dark monitoring theme with stats cards, torrent registry table, swarm details with progress bars, simulation controls, and a real-time event stream.
+- **Flask Web Server** (`app.py`) — REST API layer with 14 routes (13 API endpoints plus the dashboard page). Handles request validation, JSON routing, and HTTP error responses (400, 404). Seeds 3 demo torrents with 7 peers on startup.
+- **Tracker Engine** (`tracker.py`) — Core logic with `Tracker`, `Torrent`, and `Peer` classes. Manages torrent registration, peer announce lifecycle, progress tracking, timeout expiry, and thread-safe event logging with incremental IDs.
 
 ## 🚀 How to Run
 
