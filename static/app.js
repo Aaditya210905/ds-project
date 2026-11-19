@@ -1,250 +1,381 @@
-// ============================================================
-//  Mini BitTorrent Tracker Simulator — Frontend Logic
-// ============================================================
+// =============================================================
+//  SWARM — P2P Tracker Control Center  ·  Frontend Application
+// =============================================================
 
-let selectedTorrent = null;
-let lastEventTimestamp = 0;
+// ───── STATE ─────
+let selectedTorrent = null;   // info_hash of currently selected torrent
+let lastEventId     = 0;      // for reliable incremental event polling
+let prevStats       = {};     // previous stat values for pulse detection
 
-// Random peer names for simulation
-const RANDOM_NAMES = [
-    "Alice", "Bob", "Charlie", "Dave", "Eve", "Frank", "Grace",
-    "Heidi", "Ivan", "Judy", "Karl", "Linda", "Mike", "Nancy",
-    "Oscar", "Peggy", "Quinn", "Rita", "Steve", "Tina", "Uma",
-    "Victor", "Wendy", "Xander", "Yara", "Zack"
+const NAMES = [
+    "Alice","Bob","Charlie","Dave","Eve","Frank","Grace","Heidi",
+    "Ivan","Judy","Karl","Linda","Mike","Nancy","Oscar","Peggy",
+    "Quinn","Rita","Steve","Tina","Uma","Victor","Wendy","Xander",
+    "Yara","Zack","Amit","Priya","Leo","Mia"
 ];
 
-// ==================== API CALLS ====================
+// ───── API UTILITY ─────
 
-async function apiCall(url, method = "GET", body = null) {
+async function api(path, method = "GET", body = null) {
     const opts = { method, headers: { "Content-Type": "application/json" } };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    return res.json();
+    try {
+        const res = await fetch(path, opts);
+        const data = await res.json();
+        if (!res.ok) {
+            toast(data.error || `Error ${res.status}`, "error");
+            return null;
+        }
+        return data;
+    } catch (e) {
+        toast("Network error: " + e.message, "error");
+        return null;
+    }
 }
 
-// ==================== REFRESH DATA ====================
+// ───── TOAST NOTIFICATIONS ─────
 
-async function refreshTorrents() {
-    const torrents = await apiCall("/api/torrents");
-    renderTorrentList(torrents);
-    updateTorrentDropdown(torrents);
+function toast(msg, type = "success") {
+    const c = document.getElementById("toasts");
+    const el = document.createElement("div");
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => { el.classList.add("removing"); setTimeout(() => el.remove(), 300); }, 3000);
+}
 
-    // Refresh swarm view if a torrent is selected
+// ───── FORMATTING HELPERS ─────
+
+function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+
+function fmtBytes(b) {
+    if (b <= 0) return "0 B";
+    const u = ["B","KB","MB","GB","TB"];
+    const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
+    return (b / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + u[i];
+}
+
+function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString(); }
+
+function truncHash(h) {
+    if (!h || h.length <= 16) return h;
+    return h.slice(0, 8) + "…" + h.slice(-8);
+}
+
+// ───── RENDER: STATS ─────
+
+function renderStats(stats) {
+    setStatVal("stat-torrents", stats.total_torrents);
+    setStatVal("stat-peers",    stats.total_peers);
+    setStatVal("stat-seeders",  stats.total_seeders);
+    setStatVal("stat-leechers", stats.total_leechers);
+    prevStats = stats;
+}
+
+function setStatVal(id, val) {
+    const el = document.getElementById(id);
+    const old = parseInt(el.textContent);
+    el.textContent = val;
+    if (!isNaN(old) && old !== val) {
+        el.classList.remove("pulse");
+        void el.offsetWidth;          // reflow to restart animation
+        el.classList.add("pulse");
+    }
+}
+
+// ───── RENDER: TORRENT TABLE ─────
+
+function renderTorrents(torrents) {
+    const tb = document.getElementById("torrent-tbody");
+    if (!torrents.length) {
+        tb.innerHTML = `<tr><td colspan="7" class="empty-msg">No torrents registered</td></tr>`;
+        return;
+    }
+    tb.innerHTML = torrents.map(t => `
+        <tr class="${t.info_hash === selectedTorrent ? 'selected' : ''}"
+            onclick="selectTorrent('${t.info_hash}')">
+            <td class="cell-name">${esc(t.name)}</td>
+            <td>${esc(t.file_size)}</td>
+            <td class="cell-hash" title="${t.info_hash}">${truncHash(t.info_hash)}</td>
+            <td class="center cell-count green">${t.seeder_count}</td>
+            <td class="center cell-count red">${t.leecher_count}</td>
+            <td class="center cell-count blue">${t.total_peers}</td>
+            <td class="center">
+                <button class="act-btn remove"
+                        onclick="event.stopPropagation();removeTorrent('${t.info_hash}')">✕</button>
+            </td>
+        </tr>`).join("");
+
+    // update dropdown
+    const sel = document.getElementById("sel-torrent");
+    const cur = sel.value;
+    sel.innerHTML = torrents.map(t =>
+        `<option value="${t.info_hash}">${esc(t.name)}</option>`).join("");
+    if (cur && torrents.find(t => t.info_hash === cur)) sel.value = cur;
+}
+
+// ───── RENDER: SWARM VIEW ─────
+
+function renderSwarm(torrent) {
+    if (!torrent) {
+        document.getElementById("swarm-title").textContent = "🐝 Select a torrent to view its swarm";
+        document.getElementById("swarm-hash").textContent = "";
+        document.getElementById("swarm-meta").style.display = "none";
+        document.getElementById("peer-table-wrap").style.display = "none";
+        document.getElementById("empty-swarm").style.display = "block";
+        document.getElementById("empty-swarm").textContent = "Select a torrent above to inspect its peer swarm.";
+        return;
+    }
+
+    document.getElementById("swarm-title").textContent = `🐝 Swarm: ${torrent.name}`;
+    document.getElementById("swarm-hash").textContent = torrent.info_hash;
+
+    // meta bar
+    const meta = document.getElementById("swarm-meta");
+    meta.style.display = "flex";
+    document.getElementById("sw-seeders").textContent = torrent.seeder_count;
+    document.getElementById("sw-leechers").textContent = torrent.leecher_count;
+
+    // ratio bar
+    const total = torrent.seeder_count + torrent.leecher_count;
+    const pct = total > 0 ? (torrent.seeder_count / total * 100) : 0;
+    document.getElementById("ratio-fill").style.width = pct + "%";
+
+    if (!torrent.peers.length) {
+        document.getElementById("peer-table-wrap").style.display = "none";
+        document.getElementById("empty-swarm").style.display = "block";
+        document.getElementById("empty-swarm").textContent = "No peers in this swarm.";
+        return;
+    }
+
+    document.getElementById("empty-swarm").style.display = "none";
+    document.getElementById("peer-table-wrap").style.display = "block";
+
+    const tb = document.getElementById("peer-tbody");
+    tb.innerHTML = torrent.peers.map(p => {
+        const isSeed = p.role === "seeder";
+        const progClass = isSeed ? "green" : "blue";
+        return `<tr>
+            <td class="cell-name">👤 ${esc(p.name)}</td>
+            <td class="cell-hash" title="${p.peer_id}">${truncHash(p.peer_id)}</td>
+            <td class="center">${p.port}</td>
+            <td class="center"><span class="status ${p.role}">${isSeed ? "▲ Seeder" : "▼ Leecher"}</span></td>
+            <td class="progress-cell">
+                <div class="progress-bar">
+                    <div class="progress-fill ${progClass}" style="width:${p.progress}%"></div>
+                    <span class="progress-text">${p.progress}%</span>
+                </div>
+            </td>
+            <td class="right">${fmtBytes(p.downloaded)}</td>
+            <td class="right">${fmtBytes(p.uploaded)}</td>
+            <td class="center" style="white-space:nowrap">
+                <button class="act-btn leave"
+                        onclick="leavePeer('${torrent.info_hash}','${p.peer_id}')">Leave</button>
+                ${!isSeed ? `<button class="act-btn promote"
+                        onclick="promotePeer('${torrent.info_hash}','${p.peer_id}')">Complete ↑</button>` : ""}
+            </td>
+        </tr>`;
+    }).join("");
+}
+
+// ───── RENDER: EVENT LOG ─────
+
+function renderEvents(events) {
+    const log = document.getElementById("event-log");
+    // clear placeholder
+    if (log.querySelector(".empty-msg")) log.innerHTML = "";
+
+    events.forEach(e => {
+        const d = document.createElement("div");
+        d.className = `ev ${e.type}`;
+        d.innerHTML = `<span class="ev-time">${fmtTime(e.timestamp)}</span>
+            <span class="ev-type">${e.type.replace("PEER_","").replace("TORRENT_","")}</span>
+            <div class="ev-msg">${esc(e.message)}</div>`;
+        log.prepend(d);
+    });
+
+    // cap DOM entries
+    while (log.children.length > 60) log.removeChild(log.lastChild);
+
+    document.getElementById("ev-count").textContent = lastEventId;
+}
+
+// ───── DATA REFRESH ─────
+
+async function refresh() {
+    const torrents = await api("/api/torrents");
+    if (!torrents) return;
+    renderTorrents(torrents);
+
+    const stats = await api("/api/stats");
+    if (stats) renderStats(stats);
+
     if (selectedTorrent) {
-        const torrent = torrents.find(t => t.info_hash === selectedTorrent);
-        if (torrent) {
-            renderSwarmView(torrent);
-        } else {
-            selectedTorrent = null;
-            document.getElementById("swarm-title").textContent =
-                "🔍 Select a torrent to view its swarm";
-            document.getElementById("swarm-view").innerHTML = "";
-        }
+        const t = torrents.find(x => x.info_hash === selectedTorrent);
+        renderSwarm(t || null);
+        if (!t) selectedTorrent = null;
     }
 }
 
 async function pollEvents() {
-    const events = await apiCall(`/api/events?since=${lastEventTimestamp}`);
-    if (events.length > 0) {
-        lastEventTimestamp = events[events.length - 1].timestamp;
+    const events = await api(`/api/events?after_id=${lastEventId}`);
+    if (events && events.length) {
+        lastEventId = events[events.length - 1].event_id;
         renderEvents(events);
-        refreshTorrents();
+        await refresh();
     }
 }
 
-// ==================== RENDER FUNCTIONS ====================
+// ───── USER ACTIONS ─────
 
-function renderTorrentList(torrents) {
-    const container = document.getElementById("torrent-list");
-
-    if (torrents.length === 0) {
-        container.innerHTML = '<p class="loading">No torrents registered yet.</p>';
-        return;
-    }
-
-    container.innerHTML = torrents.map(t => `
-        <div class="torrent-card ${t.info_hash === selectedTorrent ? 'selected' : ''}"
-             onclick="selectTorrent('${t.info_hash}')">
-            <div class="torrent-name">📄 ${escapeHtml(t.name)}</div>
-            <div class="torrent-size">${escapeHtml(t.file_size)}</div>
-            <div class="torrent-hash">hash: ${t.info_hash}</div>
-            <div class="torrent-stats">
-                <span class="stat-seeder">▲ ${t.seeder_count} seeders</span>
-                <span class="stat-leecher">▼ ${t.leecher_count} leechers</span>
-                <span class="stat-total">● ${t.total_peers} total</span>
-            </div>
-            <div class="torrent-actions">
-                <button onclick="event.stopPropagation(); removeTorrent('${t.info_hash}')">
-                    Remove
-                </button>
-            </div>
-        </div>
-    `).join("");
-}
-
-function renderSwarmView(torrent) {
-    document.getElementById("swarm-title").textContent =
-        `🐝 Swarm: ${torrent.name}`;
-
-    const container = document.getElementById("swarm-view");
-
-    if (torrent.peers.length === 0) {
-        container.innerHTML = '<p class="loading">No peers in this swarm.</p>';
-        return;
-    }
-
-    container.innerHTML = torrent.peers.map(p => `
-        <div class="peer-card ${p.role}">
-            <div class="peer-name">👤 ${escapeHtml(p.name)}</div>
-            <span class="peer-role ${p.role}">
-                ${p.role === 'seeder' ? '▲ Seeder' : '▼ Leecher'}
-            </span>
-            <div class="peer-actions">
-                <button class="btn-leave"
-                        onclick="leavePeer('${torrent.info_hash}', '${p.peer_id}')">
-                    Leave
-                </button>
-                ${p.role === 'leecher' ? `
-                <button class="btn-promote"
-                        onclick="promotePeer('${torrent.info_hash}', '${p.peer_id}')">
-                    Complete ↑
-                </button>` : ''}
-            </div>
-        </div>
-    `).join("");
-}
-
-function renderEvents(newEvents) {
-    const container = document.getElementById("event-log");
-
-    // Remove loading message on first events
-    const loading = container.querySelector(".loading");
-    if (loading) loading.remove();
-
-    newEvents.forEach(e => {
-        const div = document.createElement("div");
-        div.className = `event-entry ${e.type}`;
-        const time = new Date(e.timestamp * 1000).toLocaleTimeString();
-        div.innerHTML = `
-            <div class="event-time">${time}</div>
-            <div class="event-msg">${escapeHtml(e.message)}</div>
-        `;
-        container.prepend(div);
-    });
-
-    // Keep only last 50 entries in DOM
-    while (container.children.length > 50) {
-        container.removeChild(container.lastChild);
-    }
-}
-
-function updateTorrentDropdown(torrents) {
-    const select = document.getElementById("peer-torrent");
-    const currentVal = select.value;
-    select.innerHTML = torrents.map(t =>
-        `<option value="${t.info_hash}">${escapeHtml(t.name)}</option>`
-    ).join("");
-    if (currentVal && torrents.find(t => t.info_hash === currentVal)) {
-        select.value = currentVal;
-    }
-}
-
-// ==================== USER ACTIONS ====================
-
-function selectTorrent(infoHash) {
-    selectedTorrent = infoHash;
-    refreshTorrents();
+function selectTorrent(ih) {
+    selectedTorrent = ih;
+    refresh();
 }
 
 async function registerTorrent() {
-    const name = document.getElementById("torrent-name").value.trim();
-    const fileSize = document.getElementById("torrent-size").value.trim();
-    if (!name || !fileSize) return alert("Please fill in both fields.");
-
-    await apiCall("/api/torrents", "POST", { name, file_size: fileSize });
-    document.getElementById("torrent-name").value = "";
-    document.getElementById("torrent-size").value = "";
+    const name = document.getElementById("inp-tname").value.trim();
+    const size = document.getElementById("inp-tsize").value.trim();
+    if (!name || !size) return toast("Fill in both fields", "error");
+    const r = await api("/api/torrents", "POST", { name, file_size: size });
+    if (r) { document.getElementById("inp-tname").value = ""; document.getElementById("inp-tsize").value = ""; toast("Torrent registered"); }
     await pollEvents();
 }
 
 async function addPeer() {
-    const infoHash = document.getElementById("peer-torrent").value;
-    const peerName = document.getElementById("peer-name").value.trim();
-    const role = document.getElementById("peer-role").value;
-    if (!infoHash || !peerName) return alert("Select a torrent and enter a peer name.");
-
-    await apiCall(`/api/torrents/${infoHash}/announce`, "POST",
-        { peer_name: peerName, role });
-    document.getElementById("peer-name").value = "";
+    const ih   = document.getElementById("sel-torrent").value;
+    const name = document.getElementById("inp-pname").value.trim();
+    const role = document.getElementById("sel-role").value;
+    if (!ih || !name) return toast("Select a torrent and enter a peer name", "error");
+    const r = await api(`/api/torrents/${ih}/announce`, "POST", { peer_name: name, role, event: "STARTED" });
+    if (r) { document.getElementById("inp-pname").value = ""; toast(`${name} joined as ${role}`); }
     await pollEvents();
 }
 
-async function leavePeer(infoHash, peerId) {
-    await apiCall(`/api/torrents/${infoHash}/leave`, "POST", { peer_id: peerId });
+async function leavePeer(ih, pid) {
+    await api(`/api/torrents/${ih}/leave`, "POST", { peer_id: pid });
     await pollEvents();
 }
 
-async function promotePeer(infoHash, peerId) {
-    await apiCall(`/api/torrents/${infoHash}/promote`, "POST", { peer_id: peerId });
+async function promotePeer(ih, pid) {
+    const r = await api(`/api/torrents/${ih}/promote`, "POST", { peer_id: pid });
+    if (r) toast("Peer promoted to seeder");
     await pollEvents();
 }
 
-async function removeTorrent(infoHash) {
-    if (!confirm("Remove this torrent from the tracker?")) return;
-    await apiCall(`/api/torrents/${infoHash}`, "DELETE");
-    if (selectedTorrent === infoHash) selectedTorrent = null;
+async function removeTorrent(ih) {
+    if (!confirm("Remove this torrent?")) return;
+    await api(`/api/torrents/${ih}`, "DELETE");
+    if (selectedTorrent === ih) { selectedTorrent = null; renderSwarm(null); }
     await pollEvents();
 }
 
-// ==================== SIMULATION ====================
+// ───── SIMULATION ─────
 
-async function simulateRandomJoin() {
-    const torrents = await apiCall("/api/torrents");
-    if (torrents.length === 0) return alert("Register a torrent first!");
+async function simRandomJoin() {
+    const torrents = await api("/api/torrents");
+    if (!torrents || !torrents.length) return toast("Register a torrent first", "error");
     const t = torrents[Math.floor(Math.random() * torrents.length)];
-    const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+    const name = NAMES[Math.floor(Math.random() * NAMES.length)];
     const role = Math.random() > 0.6 ? "seeder" : "leecher";
-    await apiCall(`/api/torrents/${t.info_hash}/announce`, "POST",
-        { peer_name: name, role });
+    await api(`/api/torrents/${t.info_hash}/announce`, "POST", { peer_name: name, role, event: "STARTED" });
     await pollEvents();
 }
 
-async function simulateRandomLeave() {
-    const torrents = await apiCall("/api/torrents");
-    const withPeers = torrents.filter(t => t.total_peers > 0);
-    if (withPeers.length === 0) return alert("No peers to remove!");
-    const t = withPeers[Math.floor(Math.random() * withPeers.length)];
-    const peer = t.peers[Math.floor(Math.random() * t.peers.length)];
-    await apiCall(`/api/torrents/${t.info_hash}/leave`, "POST",
-        { peer_id: peer.peer_id });
+async function simRandomLeave() {
+    const torrents = await api("/api/torrents");
+    if (!torrents) return;
+    const pool = torrents.filter(t => t.total_peers > 0);
+    if (!pool.length) return toast("No peers to remove", "error");
+    const t = pool[Math.floor(Math.random() * pool.length)];
+    const p = t.peers[Math.floor(Math.random() * t.peers.length)];
+    await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: p.peer_id });
     await pollEvents();
 }
 
-async function simulateRandomPromote() {
-    const torrents = await apiCall("/api/torrents");
-    const withLeechers = torrents.filter(t => t.leecher_count > 0);
-    if (withLeechers.length === 0) return alert("No leechers to promote!");
-    const t = withLeechers[Math.floor(Math.random() * withLeechers.length)];
-    const leechers = t.peers.filter(p => p.role === "leecher");
-    const peer = leechers[Math.floor(Math.random() * leechers.length)];
-    await apiCall(`/api/torrents/${t.info_hash}/promote`, "POST",
-        { peer_id: peer.peer_id });
+async function simProgressTick() {
+    const r = await api("/api/simulate/progress", "POST");
+    if (r && r.promoted.length) toast(`${r.promoted.join(", ")} completed download!`);
+    else if (r) toast("Progress advanced for all leechers");
     await pollEvents();
 }
 
-// ==================== HELPERS ====================
-
-function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+async function simTimeout() {
+    const r = await api("/api/simulate/timeout", "POST");
+    if (r && r.expired.length) toast(`${r.expired.length} peer(s) timed out`, "error");
+    else toast("No peers timed out");
+    await pollEvents();
 }
 
-// ==================== INIT ====================
+// ───── SCENARIOS ─────
 
-// Initial load
-refreshTorrents();
-pollEvents();
+async function scenFlashCrowd() {
+    toast("⚡ Flash crowd: 6 leechers joining…");
+    const torrents = await api("/api/torrents");
+    if (!torrents || !torrents.length) return toast("Register a torrent first", "error");
+    const t = torrents[0];
+    for (let i = 0; i < 6; i++) {
+        const name = "Peer-" + String.fromCharCode(65 + i + Math.floor(Math.random() * 10));
+        await api(`/api/torrents/${t.info_hash}/announce`, "POST",
+            { peer_name: name, role: "leecher", event: "STARTED" });
+    }
+    await pollEvents();
+    toast("Flash crowd joined!");
+}
 
-// Poll for new events every 2 seconds
-setInterval(pollEvents, 2000);
+async function scenSeederDepart() {
+    const torrents = await api("/api/torrents");
+    if (!torrents) return;
+    const t = torrents.find(x => x.seeder_count > 0) || torrents[0];
+    if (!t) return toast("No torrents", "error");
+    const seeders = t.peers.filter(p => p.role === "seeder");
+    if (!seeders.length) return toast("No seeders to remove", "error");
+    toast("💨 All seeders departing…");
+    for (const s of seeders) {
+        await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: s.peer_id });
+    }
+    await pollEvents();
+    toast("All seeders left the swarm!");
+}
+
+async function scenLifecycle() {
+    toast("🔄 Running full lifecycle…");
+    const torrents = await api("/api/torrents");
+    if (!torrents || !torrents.length) return toast("Register a torrent first", "error");
+    const t = torrents[0];
+
+    // 1) New peer joins as leecher
+    const r = await api(`/api/torrents/${t.info_hash}/announce`, "POST",
+        { peer_name: "NewPeer", role: "leecher", event: "STARTED" });
+    if (!r) return;
+    const pid = r.peer_id;
+    await pollEvents();
+
+    // 2) Progress ticks
+    for (const pct of [30, 55, 80, 95]) {
+        await delay(600);
+        await api(`/api/torrents/${t.info_hash}/progress`, "POST", { peer_id: pid, progress: pct });
+        await pollEvents();
+    }
+
+    // 3) Complete
+    await delay(600);
+    await api(`/api/torrents/${t.info_hash}/promote`, "POST", { peer_id: pid });
+    await pollEvents();
+
+    // 4) Leave after seeding
+    await delay(800);
+    await api(`/api/torrents/${t.info_hash}/leave`, "POST", { peer_id: pid });
+    await pollEvents();
+    toast("Lifecycle complete!");
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ───── INIT ─────
+
+(async () => {
+    await refresh();
+    await pollEvents();
+    setInterval(pollEvents, 2000);
+})();
