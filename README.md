@@ -1,16 +1,5 @@
 # Mini BitTorrent Tracker Simulator (Without Networking)
 
-**Distributed Systems — Group Project 2026**
-
-| Member | Roll Number |
-|--------|-------------|
-| Aaditya Meghrajani | 241020401 |
-| Abhiudai Singh | 241020403 |
-| Abhinav Srivastav | 241020404 |
-| Aditya Tiwari | 241020405 |
-
----
-
 ## 📌 Project Description
 
 A simplified BitTorrent tracker simulator that demonstrates core P2P concepts — **trackers, swarms, seeders, and leechers** — without actual networking. The tracker maintains a registry of torrent files and their associated peer swarms. Peers can announce (join), leave, or be promoted from leecher to seeder when they complete a download. All swarm changes are displayed in real time through a professional monitoring dashboard.
@@ -31,25 +20,25 @@ The system follows a **three-tier client-server architecture** modelled after a 
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                 Web Dashboard (Browser)              │
-│        HTML/CSS/JS  ·  Polls API every 2 seconds     │
+│                 Web Dashboard (Browser)             │
+│        HTML/CSS/JS  ·  Polls API every 2 seconds    │
 └──────────────────────┬──────────────────────────────┘
                        │  HTTP REST API
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│             Flask Web Server  (app.py)               │
-│     Validation · Routing · JSON responses            │
+│             Flask Web Server  (app.py)              │
+│     Validation · Routing · JSON responses           │
 └──────────────────────┬──────────────────────────────┘
                        │  Python calls
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│            Tracker Engine  (tracker.py)               │
+│            Tracker Engine  (tracker.py)             │
 │  ┌──────────────┐ ┌───────────┐ ┌────────────────┐  │
-│  │ Torrent       │ │ Peer      │ │ Event Log      │  │
-│  │ Registry      │ │ Swarms    │ │ (incremental   │  │
-│  │ {hash → info} │ │ {id → p}  │ │  IDs, capped)  │  │
+│  │ Torrent      │ │ Peer      │ │ Event Log      │  │
+│  │ Registry     │ │ Swarms    │ │ (incremental   │  │
+│  │ {hash → info}│ │ {id → p}  │ │  IDs, capped)  │  │
 │  └──────────────┘ └───────────┘ └────────────────┘  │
-│  Thread-safe (Lock)  ·  Stats history snapshots      │
+│  Thread-safe (Lock)  ·  Stats history snapshots     │
 └─────────────────────────────────────────────────────┘
 ```
 
